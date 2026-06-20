@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link } from "wouter";
-import { useGetProfile, useGetWalletTransactions, getGetProfileQueryKey } from "@workspace/api-client-react";
+import { useGetProfile, useGetWalletTransactions, getGetProfileQueryKey } from "@/lib/supabase-hooks";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
