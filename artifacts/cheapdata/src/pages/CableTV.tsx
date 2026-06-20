@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useBuyCable } from "@workspace/api-client-react";
+import { useBuyCable } from "@/lib/supabase-hooks";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -63,7 +63,7 @@ export default function CableTV() {
     if (!selectedPlanObj) return;
 
     buyCable.mutate(
-      { data: { smart_card_number: smartCardNumber, cable_provider: provider, plan_id: planId, pin: "VERIFIED_BY_MODAL" } },
+      { data: { smart_card_number: smartCardNumber, cable_provider: provider, plan_id: planId, amount: selectedPlanObj?.price ?? 0, pin: "VERIFIED_BY_MODAL" } },
       {
         onSuccess: (data) => {
           if (data.success) {
