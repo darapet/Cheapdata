@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { supabaseAdmin } from "../lib/supabase.js";
 import { requireAuth, type AuthRequest } from "../middlewares/auth.js";
+import { sendTransactionEmail } from "../lib/email.js";
 import type { Response } from "express";
 
 const router = Router();
@@ -20,15 +21,32 @@ async function creditWallet(reference: string, amount: number, gateway: string) 
 
   if (!funding) return { success: false, message: "Funding not found or already processed" };
 
+  // Fetch wallet balance AND user contact details in one query
   const { data: profile } = await supabaseAdmin
     .from("profiles")
-    .select("wallet_balance")
+    .select("wallet_balance, email, full_name")
     .eq("id", funding.user_id)
     .single();
 
   const newBalance = (profile?.wallet_balance ?? 0) + (funding.amount ?? amount);
   await supabaseAdmin.from("profiles").update({ wallet_balance: newBalance }).eq("id", funding.user_id);
-  await supabaseAdmin.from("wallet_fundings").update({ status: "completed", payment_gateway: gateway }).eq("id", funding.id);
+  await supabaseAdmin
+    .from("wallet_fundings")
+    .update({ status: "completed", payment_gateway: gateway })
+    .eq("id", funding.id);
+
+  // Send wallet funded email (non-blocking — never crashes the main flow)
+  if (profile?.email) {
+    void sendTransactionEmail({
+      toEmail: profile.email,
+      toName: profile.full_name || "Customer",
+      type: "credit",
+      description: "Wallet Funding",
+      amount: funding.amount ?? amount,
+      reference,
+      status: "successful",
+    });
+  }
 
   return { success: true, new_balance: newBalance };
 }
@@ -52,7 +70,6 @@ router.post("/wallet/verify-payment", requireAuth, async (req: AuthRequest, res:
         res.status(500).json({ success: false, message: "Flutterwave not configured" }); return;
       }
 
-      // Verify with Flutterwave API using transaction_id
       if (!transaction_id) {
         res.status(400).json({ success: false, message: "transaction_id required for Flutterwave" }); return;
       }
@@ -76,7 +93,6 @@ router.post("/wallet/verify-payment", requireAuth, async (req: AuthRequest, res:
       res.json(result);
 
     } else {
-      // Paystack: verify via Paystack API
       if (!settings?.paystack_secret_key) {
         res.status(500).json({ success: false, message: "Paystack not configured" }); return;
       }
