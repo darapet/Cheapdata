@@ -25,22 +25,26 @@ export function PinPromptModal({ open, onOpenChange, onSuccess, amount, actionTi
       toast({ title: "Error", description: "PIN must be 4 digits", variant: "destructive" });
       return;
     }
-    verifyPin.mutate({ data: { pin } }, {
-      onSuccess: (data) => {
-        if (data.valid) {
-          setPin("");
-          onOpenChange(false);
-          onSuccess();
-        } else {
-          toast({ title: "Error", description: "Invalid PIN", variant: "destructive" });
+
+    verifyPin.mutate(
+      { data: { pin } },
+      {
+        onSuccess: (data) => {
+          if (data.valid) {
+            setPin("");
+            onOpenChange(false);
+            onSuccess();
+          } else {
+            toast({ title: "Error", description: "Invalid PIN", variant: "destructive" });
+            setPin("");
+          }
+        },
+        onError: () => {
+          toast({ title: "Error", description: "Failed to verify PIN", variant: "destructive" });
           setPin("");
         }
-      },
-      onError: () => {
-        toast({ title: "Error", description: "Failed to verify PIN", variant: "destructive" });
-        setPin("");
-      },
-    });
+      }
+    );
   };
 
   return (
@@ -49,17 +53,16 @@ export function PinPromptModal({ open, onOpenChange, onSuccess, amount, actionTi
         <DialogHeader>
           <DialogTitle>{actionTitle}</DialogTitle>
           <DialogDescription>
-            {amount ? `You are about to spend ₦${amount.toLocaleString()}. ` : ""}
-            Enter your 4-digit transaction PIN to confirm.
+            {amount ? `You are about to spend ₦${amount.toLocaleString()}. ` : ''}
+            Please enter your 4-digit transaction PIN to confirm.
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4 pt-4">
           <Input
             type="password"
-            inputMode="numeric"
             maxLength={4}
             value={pin}
-            onChange={(e) => setPin(e.target.value.replace(/[^0-9]/g, ""))}
+            onChange={(e) => setPin(e.target.value.replace(/[^0-9]/g, ''))}
             placeholder="0000"
             className="text-center text-3xl tracking-[1em] h-16"
             autoFocus
