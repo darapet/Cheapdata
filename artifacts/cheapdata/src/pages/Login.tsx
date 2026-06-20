@@ -7,7 +7,7 @@ import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardFooter } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import { Zap, Loader2 } from "lucide-react";
 
@@ -35,12 +35,33 @@ export default function Login() {
     setIsLoading(false);
 
     if (error) {
-      toast({ title: "Login failed", description: error.message, variant: "destructive" });
-    } else if (data.session) {
-      if (values.email === "daramolapeter98@gmail.com") {
-        setLocation("/admin");
+      let msg = error.message;
+      if (msg.includes('Email not confirmed')) {
+        msg = 'Please check your email and click the confirmation link first.';
+      } else if (msg.includes('Invalid login credentials')) {
+        msg = 'Wrong email or password. Please try again.';
+      }
+      toast({ title: "Login failed", description: msg, variant: "destructive" });
+      return;
+    }
+
+    if (data.session) {
+      // Ensure profile row exists (upsert is safe — no-op if already there)
+      const user = data.session.user;
+      await supabase.from('profiles').upsert({
+        id: user.id,
+        email: user.email!,
+        full_name: user.user_metadata?.full_name || user.email!.split('@')[0],
+        username: user.user_metadata?.username || user.email!.split('@')[0],
+        phone: user.user_metadata?.phone || '',
+        address: user.user_metadata?.address || '',
+        wallet_balance: 0,
+      }, { onConflict: 'id', ignoreDuplicates: true });
+
+      if (values.email === 'daramolapeter98@gmail.com') {
+        setLocation('/admin/dashboard');
       } else {
-        setLocation("/dashboard");
+        setLocation('/dashboard');
       }
     }
   };
@@ -52,8 +73,9 @@ export default function Login() {
           <Zap className="h-7 w-7 text-white" />
         </div>
         <h2 className="text-center text-3xl font-bold tracking-tight text-gray-900">
-          Sign in to your account
+          CheapDataHub
         </h2>
+        <p className="mt-1 text-gray-500">Sign in to your account</p>
       </div>
 
       <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
@@ -66,7 +88,8 @@ export default function Login() {
                   id="email"
                   type="email"
                   {...form.register("email")}
-                  className={form.formState.errors.email ? "border-destructive" : ""}
+                  className={`h-12 ${form.formState.errors.email ? "border-destructive" : ""}`}
+                  placeholder="you@example.com"
                 />
                 {form.formState.errors.email && (
                   <p className="text-sm text-destructive">{form.formState.errors.email.message}</p>
@@ -78,18 +101,18 @@ export default function Login() {
                   id="password"
                   type="password"
                   {...form.register("password")}
-                  className={form.formState.errors.password ? "border-destructive" : ""}
+                  className={`h-12 ${form.formState.errors.password ? "border-destructive" : ""}`}
                 />
                 {form.formState.errors.password && (
                   <p className="text-sm text-destructive">{form.formState.errors.password.message}</p>
                 )}
               </div>
-              <Button type="submit" className="w-full h-11 text-base" disabled={isLoading}>
-                {isLoading ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : "Sign in"}
+              <Button type="submit" className="w-full h-12 text-base" disabled={isLoading}>
+                {isLoading ? <><Loader2 className="mr-2 h-5 w-5 animate-spin" />Signing in...</> : "Sign in"}
               </Button>
             </form>
           </CardContent>
-          <CardFooter className="flex justify-center">
+          <CardFooter className="flex justify-center border-t p-4">
             <p className="text-sm text-gray-600">
               Don't have an account?{" "}
               <Link href="/register">
