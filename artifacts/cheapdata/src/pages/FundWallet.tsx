@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useInitializeWalletFunding, useGetProfile, getGetProfileQueryKey } from "@workspace/api-client-react";
+import { useInitializeWalletFunding, useGetProfile, getGetProfileQueryKey } from "@/lib/supabase-hooks";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
