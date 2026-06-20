@@ -1,127 +1,111 @@
 import { useState } from "react";
-import { useAdminGetTransactions, getAdminGetTransactionsQueryKey } from "@/lib/supabase-hooks";
+import { AdminLayout } from "@/components/layout/AdminLayout";
+import { useAdminGetTransactions } from "@/lib/supabase-hooks";
 import { Card, CardContent } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { Skeleton } from "@/components/ui/skeleton";
-import { formatNaira, cn } from "@/lib/utils";
-import { CreditCard, Download, Search } from "lucide-react";
+import { formatNaira } from "@/lib/utils";
+import { Search, History } from "lucide-react";
 import { format } from "date-fns";
 
 export default function AdminTransactions() {
-  const [date, setDate] = useState("");
-  
-  const { data: transactions, isLoading } = useAdminGetTransactions({ date: date || undefined }, {
-    query: { queryKey: getAdminGetTransactionsQueryKey({ date: date || undefined }) }
+  const { data: transactions, isLoading } = useAdminGetTransactions();
+  const [search, setSearch] = useState("");
+  const [typeFilter, setTypeFilter] = useState<"all" | "credit" | "debit">("all");
+  const [statusFilter, setStatusFilter] = useState<"all" | "completed" | "pending" | "failed">("all");
+
+  const filtered = (transactions ?? []).filter((tx: any) => {
+    const matchSearch = (tx.description ?? "").toLowerCase().includes(search.toLowerCase()) ||
+      (tx.reference ?? "").toLowerCase().includes(search.toLowerCase()) ||
+      (tx.profiles?.full_name ?? "").toLowerCase().includes(search.toLowerCase()) ||
+      (tx.profiles?.email ?? "").toLowerCase().includes(search.toLowerCase());
+    const matchType = typeFilter === "all" || tx.type === typeFilter;
+    const matchStatus = statusFilter === "all" || tx.status === statusFilter;
+    return matchSearch && matchType && matchStatus;
   });
 
-  const handleDownloadCSV = () => {
-    if (!transactions || transactions.length === 0) return;
-    const headers = ['Reference', 'Date', 'User', 'Email', 'Type', 'Description', 'Amount', 'Status'];
-    const rows = transactions.map((tx: any) => [
-      tx.reference || tx.id?.slice(0, 8) || '',
-      tx.created_at ? new Date(tx.created_at).toLocaleString() : '',
-      tx.user_name || '',
-      tx.user_email || '',
-      tx.type || '',
-      tx.description || '',
-      tx.amount ?? '',
-      tx.status || '',
-    ]);
-    const csv = [headers, ...rows].map((r) => r.map(String).join(',')).join('\n');
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `transactions${date ? `-${date}` : ''}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
+  const totalAmount = filtered.reduce((s: number, tx: any) => s + (tx.amount ?? 0), 0);
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+    <AdminLayout>
+      <div className="p-6 max-w-6xl mx-auto space-y-6">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
-            <CreditCard className="h-6 w-6 text-primary" />
-            All Transactions
-          </h1>
-          <p className="text-gray-500 mt-1">Global transaction ledger</p>
+          <h1 className="text-2xl font-bold text-gray-900">All Transactions</h1>
+          <p className="text-sm text-gray-500 mt-1">{filtered.length} records · Total: {formatNaira(totalAmount)}</p>
         </div>
-        
-        <div className="flex items-center gap-3 w-full sm:w-auto">
-          <div className="relative w-full sm:w-auto">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-            <Input 
-              type="date" 
-              className="pl-9 h-10 w-full sm:w-auto"
-              value={date}
-              onChange={(e) => setDate(e.target.value)}
-            />
-          </div>
-          <Button onClick={handleDownloadCSV} variant="outline" className="h-10 gap-2 shrink-0">
-            <Download className="h-4 w-4" />
-            Export CSV
-          </Button>
-        </div>
-      </div>
 
-      <Card className="shadow-sm border-gray-100">
-        <CardContent className="p-0">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm text-left">
-              <thead className="bg-gray-50 text-gray-600 font-medium border-b border-gray-100">
-                <tr>
-                  <th className="px-6 py-4">Transaction ID / Date</th>
-                  <th className="px-6 py-4">User</th>
-                  <th className="px-6 py-4">Type & Description</th>
-                  <th className="px-6 py-4 text-right">Amount</th>
-                  <th className="px-6 py-4">Status</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {isLoading ? (
-                  <tr>
-                    <td colSpan={5} className="p-4">
-                      <div className="space-y-3">
-                        {[1, 2, 3, 4, 5].map(i => <Skeleton key={i} className="h-12 w-full" />)}
-                      </div>
-                    </td>
-                  </tr>
-                ) : transactions?.map((tx) => (
-                  <tr key={tx.id} className="hover:bg-gray-50/50">
-                    <td className="px-6 py-4">
-                      <div className="font-mono text-xs text-gray-500">{tx.reference || tx.id.slice(0, 8)}</div>
-                      <div className="text-gray-900 mt-1">{format(new Date(tx.created_at), 'MMM d, yyyy h:mm a')}</div>
-                    </td>
-                    <td className="px-6 py-4">
-                      <div className="font-semibold text-gray-900">{tx.user_name || 'Unknown'}</div>
-                      <div className="text-gray-500 text-xs">{tx.user_email}</div>
-                    </td>
-                    <td className="px-6 py-4">
-                      <div className="text-gray-900 font-medium">{tx.description}</div>
-                      <div className="text-gray-500 text-xs mt-0.5 uppercase tracking-wider">{tx.type}</div>
-                    </td>
-                    <td className="px-6 py-4 text-right font-bold text-gray-900 text-base">
-                      {formatNaira(tx.amount)}
-                    </td>
-                    <td className="px-6 py-4">
-                      <span className={cn(
-                        "text-xs px-2.5 py-1 rounded-full font-semibold",
-                        tx.status === 'successful' ? "bg-green-100 text-green-700" :
-                        tx.status === 'pending' ? "bg-yellow-100 text-yellow-700" :
-                        "bg-red-100 text-red-700"
-                      )}>
-                        {tx.status.toUpperCase()}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+        <div className="flex flex-wrap gap-3">
+          <div className="relative flex-1 min-w-[200px]">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+            <Input className="pl-10" placeholder="Search user, description or reference..." value={search} onChange={(e) => setSearch(e.target.value)} />
           </div>
-        </CardContent>
-      </Card>
-    </div>
+          <div className="flex gap-2">
+            {["all", "credit", "debit"].map((t) => (
+              <button key={t} onClick={() => setTypeFilter(t as any)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors capitalize ${typeFilter === t ? "bg-primary text-white border-primary" : "bg-white text-gray-600 border-gray-200"}`}>
+                {t}
+              </button>
+            ))}
+          </div>
+          <div className="flex gap-2">
+            {["all", "completed", "pending", "failed"].map((s) => (
+              <button key={s} onClick={() => setStatusFilter(s as any)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors capitalize ${statusFilter === s ? "bg-primary text-white border-primary" : "bg-white text-gray-600 border-gray-200"}`}>
+                {s}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {isLoading ? (
+          <div className="flex justify-center py-12"><div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" /></div>
+        ) : filtered.length === 0 ? (
+          <div className="text-center py-16 text-gray-400">
+            <History className="h-12 w-12 mx-auto mb-3 opacity-30" />
+            <p>No transactions found</p>
+          </div>
+        ) : (
+          <Card>
+            <CardContent className="p-0">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50 border-b border-gray-100">
+                    <tr>
+                      <th className="text-left px-4 py-3 text-xs font-medium text-gray-500">User</th>
+                      <th className="text-left px-4 py-3 text-xs font-medium text-gray-500">Description</th>
+                      <th className="text-left px-4 py-3 text-xs font-medium text-gray-500">Reference</th>
+                      <th className="text-right px-4 py-3 text-xs font-medium text-gray-500">Amount</th>
+                      <th className="text-center px-4 py-3 text-xs font-medium text-gray-500">Type</th>
+                      <th className="text-center px-4 py-3 text-xs font-medium text-gray-500">Status</th>
+                      <th className="text-right px-4 py-3 text-xs font-medium text-gray-500">Date</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {filtered.map((tx: any) => (
+                      <tr key={tx.id} className="hover:bg-gray-50">
+                        <td className="px-4 py-3">
+                          <p className="font-medium text-gray-800 text-xs">{tx.profiles?.full_name ?? "—"}</p>
+                          <p className="text-gray-400 text-xs">{tx.profiles?.email ?? ""}</p>
+                        </td>
+                        <td className="px-4 py-3 text-gray-600 text-xs max-w-[180px] truncate">{tx.description || tx.type}</td>
+                        <td className="px-4 py-3 font-mono text-xs text-gray-400 max-w-[140px] truncate">{tx.reference ?? "—"}</td>
+                        <td className="px-4 py-3 text-right font-medium">{formatNaira(tx.amount)}</td>
+                        <td className="px-4 py-3 text-center">
+                          <Badge variant={tx.type === "credit" ? "default" : "secondary"} className="text-xs">{tx.type}</Badge>
+                        </td>
+                        <td className="px-4 py-3 text-center">
+                          <Badge variant={tx.status === "completed" ? "default" : tx.status === "pending" ? "secondary" : "destructive"} className="text-xs">{tx.status}</Badge>
+                        </td>
+                        <td className="px-4 py-3 text-right text-xs text-gray-400">{format(new Date(tx.created_at), "MMM d, h:mm a")}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+      </div>
+    </AdminLayout>
   );
 }

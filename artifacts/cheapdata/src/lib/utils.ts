@@ -5,11 +5,10 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
-export const formatNaira = (amount: number | undefined | null) => {
-  if (amount == null) return '₦0.00';
+export function formatNaira(amount: number): string {
   return new Intl.NumberFormat('en-NG', {
     style: 'currency',
     currency: 'NGN',
     minimumFractionDigits: 2,
-  }).format(amount);
-};
+  }).format(amount)
+}

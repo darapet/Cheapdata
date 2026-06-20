@@ -1,167 +1,132 @@
 import { useState } from "react";
-import { useBuyCable } from "@/lib/supabase-hooks";
-import { Card, CardContent } from "@/components/ui/card";
+import { useForm } from "react-hook-form";
+import { AppLayout } from "@/components/layout/AppLayout";
+import { PinPromptModal } from "@/components/PinPromptModal";
+import { useGetProfile } from "@/lib/supabase-hooks";
+import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { PinPromptModal } from "@/components/PinPromptModal";
+import { Card, CardContent } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
-import { formatNaira, cn } from "@/lib/utils";
-import { Loader2, Tv } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
+import { formatNaira } from "@/lib/utils";
+import { Loader2 } from "lucide-react";
 
-const providers = [
-  { id: "DSTV", name: "DSTV" },
-  { id: "GOTV", name: "GOtv" },
-  { id: "STARTIMES", name: "Startimes" },
-];
-
-const mockPlans = {
+const PROVIDERS = {
   DSTV: [
-    { id: "dstv-padi", name: "DStv Padi", price: 2950 },
-    { id: "dstv-yanga", name: "DStv Yanga", price: 4200 },
-    { id: "dstv-confam", name: "DStv Confam", price: 7400 },
+    { id: "dstv-padi", name: "Padi", price: 2950 },
+    { id: "dstv-yanga", name: "Yanga", price: 4150 },
+    { id: "dstv-confam", name: "Confam", price: 6200 },
+    { id: "dstv-compact", name: "Compact", price: 10500 },
+    { id: "dstv-compact-plus", name: "Compact+", price: 16600 },
+    { id: "dstv-premium", name: "Premium", price: 24500 },
   ],
-  GOTV: [
-    { id: "gotv-jinja", name: "GOtv Jinja", price: 2700 },
-    { id: "gotv-jolli", name: "GOtv Jolli", price: 3950 },
-    { id: "gotv-max", name: "GOtv Max", price: 5700 },
+  GOtv: [
+    { id: "gotv-smallie", name: "Smallie", price: 1575 },
+    { id: "gotv-jinja", name: "Jinja", price: 2715 },
+    { id: "gotv-jolli", name: "Jolli", price: 4115 },
+    { id: "gotv-max", name: "Max", price: 7200 },
   ],
-  STARTIMES: [
-    { id: "st-nova", name: "Nova", price: 1500 },
-    { id: "st-basic", name: "Basic", price: 2600 },
-    { id: "st-smart", name: "Smart", price: 3500 },
-  ]
+  StarTimes: [
+    { id: "startimes-nova", name: "Nova", price: 900 },
+    { id: "startimes-basic", name: "Basic", price: 1700 },
+    { id: "startimes-smart", name: "Smart", price: 2200 },
+    { id: "startimes-classic", name: "Classic", price: 2500 },
+    { id: "startimes-super", name: "Super", price: 4200 },
+  ],
 };
 
+type Provider = keyof typeof PROVIDERS;
+
 export default function CableTV() {
-  const [provider, setProvider] = useState<string>("DSTV");
-  const [smartCardNumber, setSmartCardNumber] = useState("");
-  const [planId, setPlanId] = useState("");
-  const [isPinModalOpen, setIsPinModalOpen] = useState(false);
+  const [provider, setProvider] = useState<Provider>("DSTV");
+  const [selectedPlan, setSelectedPlan] = useState<(typeof PROVIDERS.DSTV)[0] | null>(null);
+  const [pinOpen, setPinOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const { data: profile } = useGetProfile();
   const { toast } = useToast();
+  const queryClient = useQueryClient();
 
-  const buyCable = useBuyCable();
+  const { register, handleSubmit, getValues, formState: { errors } } = useForm<{ smart_card: string }>();
 
-  const selectedPlans = mockPlans[provider as keyof typeof mockPlans] || [];
-  const selectedPlanObj = selectedPlans.find(p => p.id === planId);
-
-  const handleInitiatePurchase = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!smartCardNumber || smartCardNumber.length < 5) {
-      toast({ title: "Error", description: "Please enter a valid smart card number", variant: "destructive" });
-      return;
-    }
-    if (!planId) {
-      toast({ title: "Error", description: "Please select a subscription plan", variant: "destructive" });
-      return;
-    }
-    setIsPinModalOpen(true);
+  const onSelectPlan = (plan: (typeof PROVIDERS.DSTV)[0]) => {
+    handleSubmit(() => {
+      setSelectedPlan(plan);
+      setPinOpen(true);
+    })();
   };
 
-  const executePurchase = () => {
-    if (!selectedPlanObj) return;
-
-    buyCable.mutate(
-      { data: { smart_card_number: smartCardNumber, cable_provider: provider, plan_id: planId, amount: selectedPlanObj?.price ?? 0, pin: "VERIFIED_BY_MODAL" } },
-      {
-        onSuccess: (data) => {
-          if (data.success) {
-            toast({ title: "Success", description: data.message });
-            setSmartCardNumber("");
-            setPlanId("");
-          } else {
-            toast({ title: "Subscription Failed", description: data.message, variant: "destructive" });
-          }
-        },
-        onError: (err: any) => {
-          toast({ title: "Error", description: err.message || "An unexpected error occurred", variant: "destructive" });
-        }
+  const executePurchase = async () => {
+    if (!selectedPlan) return;
+    const { smart_card } = getValues();
+    setLoading(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch(`${import.meta.env.BASE_URL}api/services/cable`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}` },
+        body: JSON.stringify({ smart_card_number: smart_card, cable_provider: provider, plan_id: selectedPlan.id }),
+      });
+      const result = await res.json();
+      if (result.success) {
+        toast({ title: "Cable Subscription!", description: result.message });
+        queryClient.invalidateQueries({ queryKey: ["profile"] });
+        queryClient.invalidateQueries({ queryKey: ["transactions"] });
+      } else {
+        toast({ title: "Failed", description: result.message, variant: "destructive" });
       }
-    );
+    } catch {
+      toast({ title: "Error", description: "Something went wrong.", variant: "destructive" });
+    }
+    setLoading(false);
   };
+
+  const plans = PROVIDERS[provider];
 
   return (
-    <div className="space-y-6 max-w-2xl mx-auto">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
-          <Tv className="h-6 w-6 text-primary" />
-          Cable TV
-        </h1>
-        <p className="text-gray-500 mt-1">Subscribe to DSTV, GOtv, and Startimes</p>
+    <AppLayout>
+      <PinPromptModal open={pinOpen} onOpenChange={setPinOpen} onSuccess={executePurchase}
+        amount={selectedPlan?.price} actionTitle={`Confirm ${provider} Subscription`} />
+      <div className="p-6 max-w-2xl mx-auto space-y-6">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Cable TV</h1>
+          <p className="text-sm text-gray-500 mt-1">Balance: <span className="font-semibold text-primary">{formatNaira(profile?.wallet_balance ?? 0)}</span></p>
+        </div>
+
+        <div className="flex gap-2">
+          {(Object.keys(PROVIDERS) as Provider[]).map((p) => (
+            <button key={p} onClick={() => setProvider(p)}
+              className={`px-4 py-2 rounded-lg text-sm font-medium border transition-colors ${provider === p ? "bg-primary text-white border-primary" : "bg-white text-gray-600 border-gray-200 hover:border-primary"}`}>
+              {p}
+            </button>
+          ))}
+        </div>
+
+        <Card>
+          <CardContent className="p-4 space-y-2">
+            <Label>Smart Card / IUC Number</Label>
+            <Input placeholder="Enter your smart card number"
+              {...register("smart_card", { required: "Smart card number is required" })} />
+            {errors.smart_card && <p className="text-xs text-red-500">{errors.smart_card.message}</p>}
+          </CardContent>
+        </Card>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {plans.map((plan) => (
+            <button key={plan.id} onClick={() => onSelectPlan(plan)}
+              disabled={loading || (profile?.wallet_balance ?? 0) < plan.price}
+              className="bg-white border border-gray-200 rounded-xl p-4 text-left hover:border-primary hover:shadow-md transition-all disabled:opacity-50 disabled:cursor-not-allowed">
+              <div className="flex items-center justify-between">
+                <span className="font-semibold text-gray-900">{provider} {plan.name}</span>
+                <span className="font-bold text-primary">{formatNaira(plan.price)}</span>
+              </div>
+              <p className="text-xs text-gray-400 mt-1">Monthly subscription</p>
+              {loading && selectedPlan?.id === plan.id && <Loader2 className="h-4 w-4 animate-spin mt-2 text-primary" />}
+            </button>
+          ))}
+        </div>
       </div>
-
-      <Card>
-        <CardContent className="pt-6 space-y-6">
-          <div className="space-y-3">
-            <Label className="text-base">Select Provider</Label>
-            <div className="grid grid-cols-3 gap-3">
-              {providers.map((prov) => (
-                <button
-                  key={prov.id}
-                  type="button"
-                  onClick={() => { setProvider(prov.id); setPlanId(""); }}
-                  className={cn(
-                    "h-14 rounded-xl font-bold text-sm transition-all border-2",
-                    provider === prov.id 
-                      ? "border-primary bg-red-50 text-primary scale-[1.02] shadow-sm" 
-                      : "bg-white text-gray-700 border-gray-200 hover:border-gray-300"
-                  )}
-                >
-                  {prov.name}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <form onSubmit={handleInitiatePurchase} className="space-y-6">
-            <div className="space-y-2">
-              <Label htmlFor="smartCardNumber" className="text-base">Smart Card / IUC Number</Label>
-              <Input
-                id="smartCardNumber"
-                type="text"
-                value={smartCardNumber}
-                onChange={(e) => setSmartCardNumber(e.target.value.replace(/[^0-9]/g, ''))}
-                placeholder="Enter 10 or 11 digit number"
-                className="h-12 text-lg"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label className="text-base">Select Plan</Label>
-              <Select value={planId} onValueChange={setPlanId}>
-                <SelectTrigger className="h-12 text-lg">
-                  <SelectValue placeholder="Choose a subscription plan" />
-                </SelectTrigger>
-                <SelectContent>
-                  {selectedPlans.map((plan) => (
-                    <SelectItem key={plan.id} value={plan.id} className="text-base py-3">
-                      {plan.name} - {formatNaira(plan.price)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <Button 
-              type="submit" 
-              className="w-full h-14 text-lg" 
-              disabled={!smartCardNumber || !planId || buyCable.isPending}
-            >
-              {buyCable.isPending ? <Loader2 className="h-5 w-5 animate-spin mr-2" /> : null}
-              {buyCable.isPending ? "Processing..." : selectedPlanObj ? `Pay ${formatNaira(selectedPlanObj.price)}` : "Proceed to Pay"}
-            </Button>
-          </form>
-        </CardContent>
-      </Card>
-
-      <PinPromptModal 
-        open={isPinModalOpen} 
-        onOpenChange={setIsPinModalOpen}
-        onSuccess={executePurchase}
-        amount={selectedPlanObj?.price}
-        actionTitle="Confirm TV Subscription"
-      />
-    </div>
+    </AppLayout>
   );
 }
