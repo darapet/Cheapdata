@@ -270,7 +270,7 @@ export function useAdminUpdateSettings() {
 }
 
 // ── API helpers for Express test endpoints ─────────────────────────────────────
-const API_BASE = (import.meta.env.VITE_API_BASE_URL ?? '').replace(//$/, '')
+const API_BASE = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '')
 async function authHeaders() {
   const { data } = await supabase.auth.getSession()
   return { 'Content-Type': 'application/json', Authorization: `Bearer ${data.session?.access_token ?? ''}` }
