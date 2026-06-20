@@ -3,7 +3,7 @@ import { useForm } from "react-hook-form";
 import { AdminLayout } from "@/components/layout/AdminLayout";
 import {
   useAdminGetSettings, useAdminUpdateSettings, useAdminTestPaystack, useAdminTestBrevo,
-  useAdminTestFlutterwave, getGetSystemSettingsQueryKey,
+  useAdminTestFlutterwave, getAdminGetSettingsQueryKey,
 } from "@/lib/supabase-hooks";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -133,7 +133,7 @@ export default function AdminSettings() {
     updateSettings.mutate({ data }, {
       onSuccess: () => {
         toast({ title: "Settings Saved", description: "All settings updated successfully." });
-        queryClient.invalidateQueries({ queryKey: getGetSystemSettingsQueryKey() });
+        queryClient.invalidateQueries({ queryKey: getAdminGetSettingsQueryKey() });
         queryClient.invalidateQueries({ queryKey: ["public-settings"] });
       },
       onError: (err: any) => {
