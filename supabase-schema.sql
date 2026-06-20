@@ -101,11 +101,19 @@ CREATE TABLE IF NOT EXISTS public.system_settings (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- ─── Migration: add missing columns to existing system_settings table ─────────
--- Run these if your table already exists (safe to run multiple times):
+-- ─── Migration: add ALL columns to existing system_settings table ──────────────
+-- Run ALL of these in Supabase SQL Editor (safe to run multiple times):
 ALTER TABLE public.system_settings ADD COLUMN IF NOT EXISTS admin_email TEXT;
 ALTER TABLE public.system_settings ADD COLUMN IF NOT EXISTS paystack_public_key TEXT;
+ALTER TABLE public.system_settings ADD COLUMN IF NOT EXISTS paystack_secret_key TEXT;
 ALTER TABLE public.system_settings ADD COLUMN IF NOT EXISTS flutterwave_public_key TEXT;
+ALTER TABLE public.system_settings ADD COLUMN IF NOT EXISTS flutterwave_secret_key TEXT;
+ALTER TABLE public.system_settings ADD COLUMN IF NOT EXISTS cheapdatahub_api_key TEXT;
+ALTER TABLE public.system_settings ADD COLUMN IF NOT EXISTS cheapdatahub_base_url TEXT;
+ALTER TABLE public.system_settings ADD COLUMN IF NOT EXISTS cheapdatahub_funding_account TEXT;
+ALTER TABLE public.system_settings ADD COLUMN IF NOT EXISTS brevo_api_key TEXT;
+ALTER TABLE public.system_settings ADD COLUMN IF NOT EXISTS brevo_sender_email TEXT;
+ALTER TABLE public.system_settings ADD COLUMN IF NOT EXISTS brevo_sender_name TEXT DEFAULT 'CheapDataHub';
 
 ALTER TABLE public.system_settings ENABLE ROW LEVEL SECURITY;
 
