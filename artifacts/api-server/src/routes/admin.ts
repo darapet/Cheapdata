@@ -59,4 +59,81 @@ router.post("/admin/settings", requireAuth, async (req: AuthRequest, res: Respon
   res.json({ success: true });
 });
 
+// POST /api/admin/test-paystack — verify the saved Paystack secret key is valid
+router.post("/admin/test-paystack", requireAuth, async (req: AuthRequest, res: Response) => {
+  if (!(await isAdmin(req.userId!))) {
+    res.status(403).json({ error: "Forbidden" }); return;
+  }
+  const { data: settings } = await supabaseAdmin
+    .from("system_settings")
+    .select("paystack_secret_key")
+    .maybeSingle();
+  const key = settings?.paystack_secret_key?.trim();
+  if (!key) {
+    res.status(400).json({ error: "No Paystack secret key saved yet. Save your key first." }); return;
+  }
+  try {
+    const r = await fetch("https://api.paystack.co/transaction?perPage=1", {
+      headers: { Authorization: `Bearer ${key}` },
+    });
+    const body = await r.json() as { status: boolean; message: string };
+    if (body.status) {
+      res.json({ ok: true, message: "Paystack key is valid ✓" });
+    } else {
+      res.status(400).json({ error: `Paystack rejected the key: ${body.message}` });
+    }
+  } catch (e: any) {
+    res.status(500).json({ error: `Could not reach Paystack: ${e.message}` });
+  }
+});
+
+// POST /api/admin/test-brevo — send a test email using the saved Brevo settings
+router.post("/admin/test-brevo", requireAuth, async (req: AuthRequest, res: Response) => {
+  if (!(await isAdmin(req.userId!))) {
+    res.status(403).json({ error: "Forbidden" }); return;
+  }
+  const { data: settings } = await supabaseAdmin
+    .from("system_settings")
+    .select("brevo_api_key, brevo_sender_email, brevo_sender_name, admin_email")
+    .maybeSingle();
+  const key = settings?.brevo_api_key?.trim();
+  const senderEmail = settings?.brevo_sender_email?.trim();
+  const senderName = settings?.brevo_sender_name?.trim() || "CheapDataHub";
+  const toEmail = settings?.admin_email?.trim() || ADMIN_EMAIL;
+  if (!key) {
+    res.status(400).json({ error: "No Brevo API key saved yet. Save your key first." }); return;
+  }
+  if (!senderEmail) {
+    res.status(400).json({ error: "Sender email is not configured. Please fill in the Sender Email field and save." }); return;
+  }
+  try {
+    const r = await fetch("https://api.brevo.com/v3/smtp/email", {
+      method: "POST",
+      headers: { "api-key": key, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sender: { name: senderName, email: senderEmail },
+        to: [{ email: toEmail, name: "Admin" }],
+        subject: "✅ Brevo Test Email — CheapDataHub",
+        htmlContent: `<div style="font-family:sans-serif;padding:24px;max-width:480px;border:1px solid #e5e7eb;border-radius:8px">
+          <h2 style="color:#4f46e5;margin-top:0">Brevo is working! ✓</h2>
+          <p style="color:#374151">This is a test email sent from your CheapDataHub admin settings to confirm your Brevo email integration is configured correctly.</p>
+          <hr style="border:none;border-top:1px solid #e5e7eb;margin:16px 0"/>
+          <p style="color:#6b7280;font-size:13px;margin:0">
+            <strong>To:</strong> ${toEmail}<br/>
+            <strong>From:</strong> ${senderName} &lt;${senderEmail}&gt;
+          </p>
+        </div>`,
+      }),
+    });
+    if (r.ok) {
+      res.json({ ok: true, message: `Test email sent to ${toEmail}` });
+    } else {
+      const err = await r.json() as { message: string };
+      res.status(400).json({ error: `Brevo error: ${err.message}` });
+    }
+  } catch (e: any) {
+    res.status(500).json({ error: `Could not reach Brevo: ${e.message}` });
+  }
+});
+
 export default router;
