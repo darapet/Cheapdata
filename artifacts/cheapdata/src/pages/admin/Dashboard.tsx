@@ -1,4 +1,4 @@
-import { useAdminGetStats, getAdminGetStatsQueryKey } from "@workspace/api-client-react";
+import { useAdminGetStats, getAdminGetStatsQueryKey } from "@/lib/supabase-hooks";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatNaira } from "@/lib/utils";
