@@ -3,10 +3,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { useSetupPin } from "@workspace/api-client-react";
+import { useSetupPin, getGetProfileQueryKey } from "@/lib/supabase-hooks";
 import { useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
-import { getGetProfileQueryKey } from "@workspace/api-client-react";
 
 export function SetupPinModal({ open }: { open: boolean }) {
   const [pin, setPin] = useState("");
