@@ -1,7 +1,11 @@
-import { useQuery, useMutation } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase } from './supabase'
 import { useAuth } from '@/hooks/useAuth'
 import crypto from 'crypto-js'
+
+// Base URL for Express API calls (empty = root-relative, works on Replit/local)
+// Set VITE_API_BASE_URL env var when deploying frontend separately from the API
+const API_BASE = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '')
 
 // ── Query key helpers ──────────────────────────────────────────────────────────
 export const getGetProfileQueryKey = () => ['profile']
@@ -172,7 +176,7 @@ export function useGetDataPlans(network?: string) {
   })
 }
 
-// ── Settings (public) ──────────────────────────────────────────────────────────
+// ── Settings (public — no auth needed) ────────────────────────────────────────
 async function getPublicSettings() {
   const { data } = await supabase
     .from('system_settings')
@@ -188,32 +192,55 @@ export function useGetPublicSettings() {
   })
 }
 
-// ── Admin: Settings (via backend API to bypass RLS on secret keys) ─────────────
-async function authHeaders() {
-  const { data } = await supabase.auth.getSession()
-  return { 'Content-Type': 'application/json', Authorization: `Bearer ${data.session?.access_token ?? ''}` }
-}
-
+// ── Admin: Settings (via Supabase directly — RLS policy allows admin email) ───
+// This works on GitHub Pages AND on Replit/local without needing the API server
 export function useAdminGetSettings() {
+  const { user } = useAuth()
   return useQuery({
     queryKey: getGetSystemSettingsQueryKey(),
+    enabled: !!user,
     queryFn: async () => {
-      const res = await fetch('/api/admin/settings', { headers: await authHeaders() })
-      if (!res.ok) throw new Error(await res.text())
-      return res.json()
+      const { data, error } = await supabase
+        .from('system_settings')
+        .select('*')
+        .maybeSingle()
+      if (error) throw error
+      return data ?? {}
     },
   })
 }
 
 export function useAdminUpdateSettings() {
+  const queryClient = useQueryClient()
   return useMutation({
     mutationFn: async ({ data }: { data: Record<string, string> }) => {
-      const res = await fetch('/api/admin/settings', {
-        method: 'POST',
-        headers: await authHeaders(),
-        body: JSON.stringify(data),
+      // Only overwrite secret/API keys when a new non-empty value is provided
+      const payload: Record<string, string> = { ...data }
+      const secretFields = ['paystack_secret_key', 'flutterwave_secret_key', 'cheapdatahub_api_key', 'brevo_api_key']
+      secretFields.forEach(key => {
+        if (!payload[key]?.trim()) delete payload[key]
       })
-      if (!res.ok) throw new Error(await res.text())
+
+      const { data: existing } = await supabase
+        .from('system_settings')
+        .select('id')
+        .maybeSingle()
+
+      if (existing?.id) {
+        const { error } = await supabase
+          .from('system_settings')
+          .update(payload)
+          .eq('id', existing.id)
+        if (error) throw error
+      } else {
+        const { error } = await supabase
+          .from('system_settings')
+          .insert(payload)
+        if (error) throw error
+      }
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: getGetSystemSettingsQueryKey() })
     },
   })
 }
@@ -314,11 +341,17 @@ export function useAdminGetTransactions() {
   })
 }
 
-// ── Admin: Test Paystack key ───────────────────────────────────────────────────
+// ── Auth header helper (for Express API test endpoints) ───────────────────────
+async function authHeaders() {
+  const { data } = await supabase.auth.getSession()
+  return { 'Content-Type': 'application/json', Authorization: `Bearer ${data.session?.access_token ?? ''}` }
+}
+
+// ── Admin: Test Paystack key (calls Express API) ───────────────────────────────
 export function useAdminTestPaystack() {
   return useMutation({
     mutationFn: async () => {
-      const res = await fetch('/api/admin/test-paystack', {
+      const res = await fetch(`${API_BASE}/api/admin/test-paystack`, {
         method: 'POST',
         headers: await authHeaders(),
       })
@@ -329,11 +362,11 @@ export function useAdminTestPaystack() {
   })
 }
 
-// ── Admin: Test Brevo (send test email) ───────────────────────────────────────
+// ── Admin: Test Brevo (send test email, calls Express API) ────────────────────
 export function useAdminTestBrevo() {
   return useMutation({
     mutationFn: async () => {
-      const res = await fetch('/api/admin/test-brevo', {
+      const res = await fetch(`${API_BASE}/api/admin/test-brevo`, {
         method: 'POST',
         headers: await authHeaders(),
       })
@@ -344,11 +377,11 @@ export function useAdminTestBrevo() {
   })
 }
 
-// ── Admin: Test Flutterwave key ───────────────────────────────────────────────
+// ── Admin: Test Flutterwave key (calls Express API) ───────────────────────────
 export function useAdminTestFlutterwave() {
   return useMutation({
     mutationFn: async () => {
-      const res = await fetch('/api/admin/test-flutterwave', {
+      const res = await fetch(`${API_BASE}/api/admin/test-flutterwave`, {
         method: 'POST',
         headers: await authHeaders(),
       })
