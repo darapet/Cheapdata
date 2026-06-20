@@ -1,347 +1,276 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { supabase } from './supabase'
-import { useAuth } from '@/hooks/useAuth'
-import crypto from 'crypto-js'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { supabase } from './supabase';
+import { sendTransactionEmail } from './email';
 
-// Base URL for Express API calls (empty = root-relative, works on Replit/local)
-// Set VITE_API_BASE_URL env var when deploying frontend separately from the API
-const API_BASE = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '')
-
-// ── Query key helpers ──────────────────────────────────────────────────────────
-export const getGetProfileQueryKey = () => ['profile']
-export const getGetTransactionsQueryKey = () => ['transactions']
-export const getGetDataPlansQueryKey = (network?: string) => ['data-plans', network]
-export const getGetSystemSettingsQueryKey = () => ['system-settings']
-export const getAdminStatsQueryKey = () => ['admin-stats']
-export const getAdminUsersQueryKey = () => ['admin-users']
-export const getAdminTransactionsQueryKey = () => ['admin-transactions']
-
-// ── PIN hashing ────────────────────────────────────────────────────────────────
-function hashPin(pin: string): string {
-  return crypto.SHA256(pin + 'cheapdatahub_salt').toString()
+async function hashPin(pin: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(pin);
+  const hash = await crypto.subtle.digest('SHA-256', data);
+  return Array.from(new Uint8Array(hash)).map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-// ── Profile ────────────────────────────────────────────────────────────────────
-export function useGetProfile() {
-  const { user } = useAuth()
+function makeRef(prefix: string): string {
+  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
+}
+
+export const getGetProfileQueryKey = () => ['profile'];
+export const getGetWalletTransactionsQueryKey = () => ['transactions'];
+export const getGetDataPlansByNetworkQueryKey = (network: string) => ['data-plans', network];
+export const getAdminGetStatsQueryKey = () => ['admin-stats'];
+export const getAdminGetTransactionsQueryKey = (params?: { date?: string }) => ['admin-transactions', params?.date ?? ''];
+export const getAdminGetUsersQueryKey = () => ['admin-users'];
+export const getAdminGetSettingsQueryKey = () => ['admin-settings'];
+
+export function useGetProfile(options?: any) {
   return useQuery({
-    queryKey: getGetProfileQueryKey(),
-    enabled: !!user,
+    queryKey: options?.query?.queryKey ?? getGetProfileQueryKey(),
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', user!.id)
-        .single()
-      if (error) throw error
-      return data
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Not authenticated');
+      const { data, error } = await supabase.from('profiles').select('*').eq('id', user.id).single();
+      if (error) throw error;
+      return data;
     },
-  })
+  });
 }
 
-export function useUpdateProfile() {
-  const { user } = useAuth()
-  return useMutation({
-    mutationFn: async ({ data }: { data: { full_name?: string; phone?: string } }) => {
-      const { error } = await supabase
-        .from('profiles')
-        .update({ ...data, updated_at: new Date().toISOString() })
-        .eq('id', user!.id)
-      if (error) throw error
+export function useGetWalletTransactions(options?: any) {
+  return useQuery({
+    queryKey: options?.query?.queryKey ?? getGetWalletTransactionsQueryKey(),
+    queryFn: async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Not authenticated');
+      const { data, error } = await supabase.from('wallet_fundings').select('*').eq('user_id', user.id).order('created_at', { ascending: false });
+      if (error) throw error;
+      return data ?? [];
     },
-  })
+  });
 }
 
-// ── PIN management ─────────────────────────────────────────────────────────────
+export function useGetDataPlansByNetwork(network: string, options?: any) {
+  return useQuery({
+    queryKey: options?.query?.queryKey ?? getGetDataPlansByNetworkQueryKey(network),
+    queryFn: async () => {
+      const { data, error } = await supabase.from('data_plans').select('*').eq('network', network).eq('is_active', true).order('retail_price', { ascending: true });
+      if (error) throw error;
+      return data ?? [];
+    },
+    enabled: !!network,
+  });
+}
+
 export function useSetupPin() {
-  const { user } = useAuth()
   return useMutation({
-    mutationFn: async ({ data }: { data: { pin: string } }) => {
-      const { error } = await supabase
-        .from('profiles')
-        .update({ transaction_pin: hashPin(data.pin) })
-        .eq('id', user!.id)
-      if (error) throw error
+    mutationFn: async ({ data: { pin } }: { data: { pin: string } }) => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Not authenticated');
+      const hashedPin = await hashPin(pin);
+      const { error } = await supabase.from('profiles').update({ transaction_pin: hashedPin, is_pin_set: true }).eq('id', user.id);
+      if (error) throw error;
+      return { success: true };
     },
-  })
+  });
 }
 
 export function useVerifyPin() {
-  const { user } = useAuth()
   return useMutation({
-    mutationFn: async ({ data }: { data: { pin: string } }) => {
-      const { data: profile, error } = await supabase
-        .from('profiles')
-        .select('transaction_pin')
-        .eq('id', user!.id)
-        .single()
-      if (error) throw error
-      const valid = profile?.transaction_pin === hashPin(data.pin)
-      return { valid }
+    mutationFn: async ({ data: { pin } }: { data: { pin: string } }) => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Not authenticated');
+      const hashedPin = await hashPin(pin);
+      const { data, error } = await supabase.from('profiles').select('transaction_pin').eq('id', user.id).single();
+      if (error) throw error;
+      return { valid: data?.transaction_pin === hashedPin };
     },
-  })
+  });
 }
 
-// ── Wallet ─────────────────────────────────────────────────────────────────────
-export function useGetWalletBalance() {
-  const { user } = useAuth()
+export function useInitializeWalletFunding() {
+  return useMutation({
+    mutationFn: async ({ data: { amount } }: { data: { amount: number } }) => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Not authenticated');
+      const { data: settings } = await supabase.from('system_settings').select('cheapdatahub_funding_account').maybeSingle();
+      const reference = makeRef('CDH');
+      const total_amount = amount + 50;
+      await supabase.from('wallet_fundings').insert({ user_id: user.id, type: 'funding', description: `Wallet Funding N${amount.toLocaleString()}`, amount, status: 'pending', reference });
+      return { reference, total_amount, funding_account: settings?.cheapdatahub_funding_account ?? '0123456789' };
+    },
+  });
+}
+
+async function getProfileBalance(userId: string) {
+  const { data, error } = await supabase.from('profiles').select('wallet_balance').eq('id', userId).single();
+  if (error) throw error;
+  return (data?.wallet_balance ?? 0) as number;
+}
+
+async function getUserProfile(userId: string) {
+  const { data } = await supabase.from('profiles').select('email, full_name, wallet_balance').eq('id', userId).single();
+  return data;
+}
+
+async function deductAndRecord(userId: string, balance: number, amount: number, type: string, description: string, reference: string) {
+  const { error: upErr } = await supabase.from('profiles').update({ wallet_balance: balance - amount }).eq('id', userId);
+  if (upErr) throw upErr;
+  await supabase.from('wallet_fundings').insert({ user_id: userId, type, description, amount, status: 'successful', reference });
+  const profile = await getUserProfile(userId);
+  if (profile?.email) {
+    sendTransactionEmail({ toEmail: profile.email, toName: profile.full_name || 'Customer', type, description, amount, reference, status: 'successful' }).catch(() => {});
+  }
+}
+
+export function useBuyData() {
+  return useMutation({
+    mutationFn: async ({ data }: { data: { phone: string; plan_id: string; network: string; pin: string } }) => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Not authenticated');
+      const { data: plan } = await supabase.from('data_plans').select('*').eq('plan_id', data.plan_id).single();
+      if (!plan) return { success: false, message: 'Plan not found.' };
+      const balance = await getProfileBalance(user.id);
+      if (balance < plan.retail_price) return { success: false, message: 'Insufficient wallet balance. Please fund your wallet.' };
+      await deductAndRecord(user.id, balance, plan.retail_price, 'data', `${data.network} ${plan.plan_name} to ${data.phone}`, makeRef('DATA'));
+      return { success: true, message: `${plan.plan_name} data sent to ${data.phone} successfully!` };
+    },
+  });
+}
+
+export function useBuyAirtime() {
+  return useMutation({
+    mutationFn: async ({ data }: { data: { phone: string; network: string; amount: number; pin: string } }) => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Not authenticated');
+      const balance = await getProfileBalance(user.id);
+      if (balance < data.amount) return { success: false, message: 'Insufficient wallet balance. Please fund your wallet.' };
+      await deductAndRecord(user.id, balance, data.amount, 'airtime', `${data.network} Airtime N${data.amount.toLocaleString()} to ${data.phone}`, makeRef('AIRTIME'));
+      return { success: true, message: `N${data.amount.toLocaleString()} airtime sent to ${data.phone} successfully!` };
+    },
+  });
+}
+
+export function useBuyCable() {
+  return useMutation({
+    mutationFn: async ({ data }: { data: { smart_card_number: string; cable_provider: string; plan_id: string; amount: number; pin: string } }) => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Not authenticated');
+      const balance = await getProfileBalance(user.id);
+      if (balance < data.amount) return { success: false, message: 'Insufficient wallet balance. Please fund your wallet.' };
+      await deductAndRecord(user.id, balance, data.amount, 'cable', `${data.cable_provider} Subscription IUC: ${data.smart_card_number}`, makeRef('CABLE'));
+      return { success: true, message: 'Cable TV subscription activated successfully!' };
+    },
+  });
+}
+
+export function useBuyElectricity() {
+  return useMutation({
+    mutationFn: async ({ data }: { data: { meter_number: string; disco: string; amount: number; meter_type: string; pin: string } }) => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Not authenticated');
+      const balance = await getProfileBalance(user.id);
+      if (balance < data.amount) return { success: false, message: 'Insufficient wallet balance. Please fund your wallet.' };
+      await deductAndRecord(user.id, balance, data.amount, 'electricity', `${data.disco} ${data.meter_type} Token Meter: ${data.meter_number}`, makeRef('ELEC'));
+      return { success: true, message: 'Electricity token purchased successfully!' };
+    },
+  });
+}
+
+export function useAdminGetStats(options?: any) {
   return useQuery({
-    queryKey: ['wallet-balance'],
-    enabled: !!user,
+    queryKey: options?.query?.queryKey ?? getAdminGetStatsQueryKey(),
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('wallet_balance')
-        .eq('id', user!.id)
-        .single()
-      if (error) throw error
-      return data?.wallet_balance ?? 0
+      const today = new Date().toISOString().split('T')[0];
+      const [usersRes, allTxRes, todayTxRes] = await Promise.all([
+        supabase.from('profiles').select('id', { count: 'exact', head: true }),
+        supabase.from('wallet_fundings').select('amount, type'),
+        supabase.from('wallet_fundings').select('amount, type').gte('created_at', `${today}T00:00:00`),
+      ]);
+      const allTx = allTxRes.data ?? [];
+      const todayTx = todayTxRes.data ?? [];
+      const sum = (arr: { amount: number }[]) => arr.reduce((s, t) => s + (t.amount ?? 0), 0);
+      return {
+        total_users: usersRes.count ?? 0,
+        total_revenue: sum(allTx.filter((t) => t.type === 'funding')),
+        total_transactions: allTx.length,
+        active_users_today: 0,
+        today_revenue: sum(todayTx.filter((t) => t.type !== 'funding')),
+        today_transactions: todayTx.length,
+        total_disbursed: sum(allTx.filter((t) => t.type !== 'funding')),
+      };
     },
-  })
+  });
 }
 
-export function useInitializeFunding() {
-  const { user } = useAuth()
-  return useMutation({
-    mutationFn: async ({ data }: { data: { amount: number; gateway: 'paystack' | 'flutterwave' } }) => {
-      const settings = await getPublicSettings()
-      const ref = `FUND-${Date.now()}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`
-      const totalAmount = data.amount + 50
-
-      await supabase.from('wallet_fundings').insert({
-        user_id: user!.id,
-        type: 'credit',
-        amount: data.amount,
-        processing_fee: 50,
-        total_amount: totalAmount,
-        status: 'pending',
-        payment_gateway: data.gateway,
-        reference: ref,
-        description: 'Wallet Funding',
-      })
-
-      if (data.gateway === 'paystack') {
-        return {
-          gateway: 'paystack',
-          reference: ref,
-          public_key: settings?.paystack_public_key || '',
-          amount: totalAmount * 100,
-        }
-      } else {
-        return {
-          gateway: 'flutterwave',
-          reference: ref,
-          public_key: settings?.flutterwave_public_key || '',
-          amount: totalAmount,
-        }
+export function useAdminGetTransactions(params?: { date?: string }, options?: any) {
+  return useQuery({
+    queryKey: options?.query?.queryKey ?? getAdminGetTransactionsQueryKey(params),
+    queryFn: async () => {
+      let query = supabase.from('wallet_fundings').select('*, profiles(full_name, email)').order('created_at', { ascending: false });
+      if (params?.date) {
+        query = query.gte('created_at', `${params.date}T00:00:00`).lte('created_at', `${params.date}T23:59:59`);
       }
+      const { data, error } = await query;
+      if (error) throw error;
+      return (data ?? []).map((tx: any) => ({ ...tx, user_name: tx.profiles?.full_name ?? 'Unknown', user_email: tx.profiles?.email ?? '' }));
     },
-  })
+  });
 }
 
-// ── Transactions ───────────────────────────────────────────────────────────────
-export function useGetTransactions() {
-  const { user } = useAuth()
+export function useAdminGetUsers(options?: any) {
   return useQuery({
-    queryKey: getGetTransactionsQueryKey(),
-    enabled: !!user,
+    queryKey: options?.query?.queryKey ?? getAdminGetUsersQueryKey(),
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('wallet_fundings')
-        .select('*')
-        .eq('user_id', user!.id)
-        .order('created_at', { ascending: false })
-        .limit(50)
-      if (error) throw error
-      return data ?? []
+      const { data, error } = await supabase.from('profiles').select('*').order('created_at', { ascending: false });
+      if (error) throw error;
+      return data ?? [];
     },
-  })
+  });
 }
 
-// ── Data plans ─────────────────────────────────────────────────────────────────
-export function useGetDataPlans(network?: string) {
+export function useAdminGetSettings(options?: any) {
   return useQuery({
-    queryKey: getGetDataPlansQueryKey(network),
+    queryKey: options?.query?.queryKey ?? getAdminGetSettingsQueryKey(),
     queryFn: async () => {
-      let query = supabase
-        .from('data_plans')
-        .select('*')
-        .eq('is_active', true)
-        .order('retail_price', { ascending: true })
-      if (network) query = query.eq('network', network)
-      const { data, error } = await query
-      if (error) throw error
-      return data ?? []
+      const { data, error } = await supabase.from('system_settings').select('*').maybeSingle();
+      if (error) throw error;
+      return data ?? { active_payment_gateway: 'paystack', cheapdatahub_funding_account: '' };
     },
-  })
-}
-
-// ── Settings (public — no auth needed) ────────────────────────────────────────
-async function getPublicSettings() {
-  const { data } = await supabase
-    .from('system_settings')
-    .select('paystack_public_key, flutterwave_public_key, active_payment_gateway')
-    .maybeSingle()
-  return data
-}
-
-export function useGetPublicSettings() {
-  return useQuery({
-    queryKey: ['public-settings'],
-    queryFn: getPublicSettings,
-  })
-}
-
-// ── Admin: Settings (via Supabase directly — RLS policy allows admin email) ───
-// This works on GitHub Pages AND on Replit/local without needing the API server
-export function useAdminGetSettings() {
-  const { user } = useAuth()
-  return useQuery({
-    queryKey: getGetSystemSettingsQueryKey(),
-    enabled: !!user,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('system_settings')
-        .select('*')
-        .maybeSingle()
-      if (error) throw error
-      return data ?? {}
-    },
-  })
+  });
 }
 
 export function useAdminUpdateSettings() {
-  const queryClient = useQueryClient()
+  const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async ({ data }: { data: Record<string, string> }) => {
-      // Only overwrite secret/API keys when a new non-empty value is provided
-      const payload: Record<string, string> = { ...data }
-      const secretFields = ['paystack_secret_key', 'flutterwave_secret_key', 'cheapdatahub_api_key', 'brevo_api_key']
-      secretFields.forEach(key => {
-        if (!payload[key]?.trim()) delete payload[key]
-      })
+    mutationFn: async ({ data }: { data: any }) => {
+      const { data: existing } = await supabase.from('system_settings').select('id').maybeSingle();
+      const payload: Record<string, any> = {
+        active_payment_gateway: data.active_payment_gateway,
+        cheapdatahub_funding_account: data.cheapdatahub_funding_account,
+        cheapdatahub_base_url: data.cheapdatahub_base_url,
+        brevo_sender_email: data.brevo_sender_email,
+        brevo_sender_name: data.brevo_sender_name,
+      };
+      if (data.paystack_secret_key) payload.paystack_secret_key = data.paystack_secret_key;
+      if (data.paystack_public_key) payload.paystack_public_key = data.paystack_public_key;
+      if (data.flutterwave_secret_key) payload.flutterwave_secret_key = data.flutterwave_secret_key;
+      if (data.flutterwave_public_key) payload.flutterwave_public_key = data.flutterwave_public_key;
+      if (data.cheapdatahub_api_key) payload.cheapdatahub_api_key = data.cheapdatahub_api_key;
+      if (data.brevo_api_key) payload.brevo_api_key = data.brevo_api_key;
 
-      const { data: existing } = await supabase
-        .from('system_settings')
-        .select('id')
-        .maybeSingle()
-
-      if (existing?.id) {
-        const { error } = await supabase
-          .from('system_settings')
-          .update(payload)
-          .eq('id', existing.id)
-        if (error) throw error
+      let error;
+      if (existing) {
+        ({ error } = await supabase.from('system_settings').update(payload).eq('id', existing.id));
       } else {
-        const { error } = await supabase
-          .from('system_settings')
-          .insert(payload)
-        if (error) throw error
+        ({ error } = await supabase.from('system_settings').insert(payload));
       }
+      if (error) throw error;
+      queryClient.invalidateQueries({ queryKey: getAdminGetSettingsQueryKey() });
+      return { success: true, message: 'Settings updated.' };
     },
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: getGetSystemSettingsQueryKey() })
-    },
-  })
+  });
 }
 
-// ── Admin: Stats ───────────────────────────────────────────────────────────────
-export function useAdminGetStats() {
-  return useQuery({
-    queryKey: getAdminStatsQueryKey(),
-    queryFn: async () => {
-      const today = new Date()
-      today.setHours(0, 0, 0, 0)
-      const todayStr = today.toISOString()
-
-      const [usersRes, txRes, todayTxRes] = await Promise.all([
-        supabase.from('profiles').select('id, wallet_balance, created_at'),
-        supabase.from('wallet_fundings').select('amount, type, status'),
-        supabase.from('wallet_fundings').select('amount, type, status').gte('created_at', todayStr),
-      ])
-
-      const users = usersRes.data ?? []
-      const allTx = txRes.data ?? []
-      const todayTx = todayTxRes.data ?? []
-
-      const total_users = users.length
-      const total_revenue = allTx
-        .filter(t => t.type === 'credit' && t.status === 'completed')
-        .reduce((s, t) => s + (t.amount ?? 0), 0)
-      const total_transactions = allTx.length
-      const today_revenue = todayTx
-        .filter(t => t.type === 'credit' && t.status === 'completed')
-        .reduce((s, t) => s + (t.amount ?? 0), 0)
-      const today_transactions = todayTx.length
-      const total_disbursed = allTx
-        .filter(t => t.type === 'debit' && t.status === 'completed')
-        .reduce((s, t) => s + (t.amount ?? 0), 0)
-
-      return {
-        total_users,
-        total_revenue,
-        total_transactions,
-        today_revenue,
-        today_transactions,
-        total_disbursed,
-      }
-    },
-  })
-}
-
-// ── Admin: Users ───────────────────────────────────────────────────────────────
-export function useAdminGetUsers() {
-  return useQuery({
-    queryKey: getAdminUsersQueryKey(),
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .order('created_at', { ascending: false })
-      if (error) throw error
-      return data ?? []
-    },
-  })
-}
-
-export function useAdminCreditWallet() {
-  return useMutation({
-    mutationFn: async ({ userId, amount, description }: { userId: string; amount: number; description: string }) => {
-      const ref = `ADMIN-${Date.now()}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`
-      const { data: profile } = await supabase.from('profiles').select('wallet_balance').eq('id', userId).single()
-      const newBalance = (profile?.wallet_balance ?? 0) + amount
-      const { error } = await supabase.from('profiles').update({ wallet_balance: newBalance }).eq('id', userId)
-      if (error) throw error
-      await supabase.from('wallet_fundings').insert({
-        user_id: userId,
-        type: 'credit',
-        amount,
-        description: description || 'Admin Credit',
-        status: 'completed',
-        reference: ref,
-        payment_gateway: 'admin',
-      })
-    },
-  })
-}
-
-// ── Admin: Transactions ────────────────────────────────────────────────────────
-export function useAdminGetTransactions() {
-  return useQuery({
-    queryKey: getAdminTransactionsQueryKey(),
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('wallet_fundings')
-        .select('*, profiles(full_name, email, phone)')
-        .order('created_at', { ascending: false })
-        .limit(200)
-      if (error) throw error
-      return data ?? []
-    },
-  })
-}
-
-// ── Auth header helper (for Express API test endpoints) ───────────────────────
+// ── API helpers for Express test endpoints ─────────────────────────────────────
+const API_BASE = (import.meta.env.VITE_API_BASE_URL ?? '').replace(//$/, '')
 async function authHeaders() {
   const { data } = await supabase.auth.getSession()
   return { 'Content-Type': 'application/json', Authorization: `Bearer ${data.session?.access_token ?? ''}` }
