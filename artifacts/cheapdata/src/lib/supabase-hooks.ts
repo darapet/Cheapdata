@@ -313,3 +313,33 @@ export function useAdminGetTransactions() {
     },
   })
 }
+
+// ── Admin: Test Paystack key ───────────────────────────────────────────────────
+export function useAdminTestPaystack() {
+  return useMutation({
+    mutationFn: async () => {
+      const res = await fetch('/api/admin/test-paystack', {
+        method: 'POST',
+        headers: await authHeaders(),
+      })
+      const body = await res.json() as { ok?: boolean; message?: string; error?: string }
+      if (!res.ok) throw new Error(body.error ?? 'Test failed')
+      return body.message ?? 'Success'
+    },
+  })
+}
+
+// ── Admin: Test Brevo (send test email) ───────────────────────────────────────
+export function useAdminTestBrevo() {
+  return useMutation({
+    mutationFn: async () => {
+      const res = await fetch('/api/admin/test-brevo', {
+        method: 'POST',
+        headers: await authHeaders(),
+      })
+      const body = await res.json() as { ok?: boolean; message?: string; error?: string }
+      if (!res.ok) throw new Error(body.error ?? 'Test failed')
+      return body.message ?? 'Success'
+    },
+  })
+}
