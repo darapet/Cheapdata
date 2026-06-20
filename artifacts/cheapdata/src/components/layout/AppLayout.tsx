@@ -1,9 +1,8 @@
 import { Link, useLocation } from "wouter";
-import { Home, Wifi, Phone, Tv, Zap, Wallet, History, User, LogOut, ShieldCheck, Menu, X } from "lucide-react";
+import { Home, Wifi, Phone, Tv, Zap, Wallet, History, User, LogOut } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
-import { useState } from "react";
 
 const navigation = [
   { name: "Dashboard", href: "/dashboard", icon: Home },
@@ -19,100 +18,81 @@ const navigation = [
 export function AppLayout({ children }: { children: React.ReactNode }) {
   const [location, setLocation] = useLocation();
   const { user } = useAuth();
-  const [mobileOpen, setMobileOpen] = useState(false);
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
     setLocation("/login");
   };
 
-  const NavLinks = () => (
-    <>
-      <nav className="flex-1 px-4 space-y-1 overflow-y-auto py-4">
-        {navigation.map((item) => {
-          const isActive = location === item.href;
-          return (
-            <Link key={item.name} href={item.href}>
-              <a
-                onClick={() => setMobileOpen(false)}
-                className={cn(
-                  "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors",
-                  isActive ? "bg-primary text-white" : "text-gray-600 hover:bg-purple-50 hover:text-primary"
-                )}
-              >
-                <item.icon className="h-5 w-5" />
-                {item.name}
+  return (
+    <div className="flex h-screen w-full bg-gray-50 flex-col md:flex-row">
+      <div className="w-full md:w-64 bg-white border-r border-gray-200 flex-shrink-0 flex flex-col hidden md:flex">
+        <div className="p-5 flex items-center">
+          <img src={`${import.meta.env.BASE_URL}logo.png`} alt="CheapDataHub" className="h-10 w-auto" />
+        </div>
+        <nav className="flex-1 px-4 space-y-1 overflow-y-auto">
+          {navigation.map((item) => {
+            const isActive = location === item.href;
+            return (
+              <Link key={item.name} href={item.href}>
+                <a
+                  className={cn(
+                    "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors",
+                    isActive
+                      ? "bg-primary text-white"
+                      : "text-gray-600 hover:bg-red-50 hover:text-primary"
+                  )}
+                >
+                  <item.icon className={cn("h-5 w-5", isActive ? "text-white" : "")} />
+                  {item.name}
+                </a>
+              </Link>
+            );
+          })}
+        </nav>
+        <div className="p-4 border-t border-gray-200">
+          {user?.email === "daramolapeter98@gmail.com" && (
+            <Link href="/admin">
+              <a className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-100 transition-colors mb-2">
+                <User className="h-5 w-5" />
+                Admin Panel
               </a>
             </Link>
-          );
-        })}
-      </nav>
-      <div className="p-4 border-t border-gray-200 space-y-1">
-        {user?.email === "daramolapeter98@gmail.com" && (
-          <Link href="/admin">
-            <a onClick={() => setMobileOpen(false)} className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-purple-700 hover:bg-purple-50 transition-colors">
-              <ShieldCheck className="h-5 w-5" />
-              Admin Panel
-            </a>
-          </Link>
-        )}
-        <button
-          onClick={handleLogout}
-          className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-100 transition-colors w-full text-left"
-        >
-          <LogOut className="h-5 w-5" />
-          Logout
-        </button>
-      </div>
-    </>
-  );
-
-  return (
-    <div className="flex h-screen w-full bg-gray-50">
-      {/* Desktop sidebar */}
-      <div className="hidden md:flex w-64 bg-white border-r border-gray-200 flex-shrink-0 flex-col">
-        <div className="p-5 border-b border-gray-100">
-          <div className="flex items-center gap-2">
-            <div className="bg-primary rounded-lg p-1.5">
-              <Wifi className="h-5 w-5 text-white" />
-            </div>
-            <span className="font-bold text-gray-900">CheapDataHub</span>
-          </div>
-        </div>
-        <NavLinks />
-      </div>
-
-      {/* Mobile header */}
-      <div className="flex flex-col flex-1 overflow-hidden">
-        <div className="md:hidden flex items-center justify-between bg-white border-b border-gray-200 px-4 py-3">
-          <div className="flex items-center gap-2">
-            <div className="bg-primary rounded-lg p-1.5">
-              <Wifi className="h-5 w-5 text-white" />
-            </div>
-            <span className="font-bold text-gray-900">CheapDataHub</span>
-          </div>
-          <button onClick={() => setMobileOpen(!mobileOpen)} className="p-2 rounded-lg hover:bg-gray-100">
-            {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+          )}
+          <button
+            onClick={handleLogout}
+            className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-100 transition-colors w-full text-left"
+          >
+            <LogOut className="h-5 w-5" />
+            Logout
           </button>
         </div>
+      </div>
 
-        {/* Mobile drawer */}
-        {mobileOpen && (
-          <div className="md:hidden absolute inset-0 z-50 flex">
-            <div className="w-72 bg-white flex flex-col shadow-xl">
-              <div className="p-5 border-b border-gray-100 flex items-center justify-between">
-                <span className="font-bold text-gray-900">Menu</span>
-                <button onClick={() => setMobileOpen(false)}><X className="h-5 w-5" /></button>
-              </div>
-              <NavLinks />
-            </div>
-            <div className="flex-1 bg-black/40" onClick={() => setMobileOpen(false)} />
-          </div>
-        )}
+      {/* Mobile nav header */}
+      <div className="md:hidden bg-white border-b border-gray-200 p-4 flex items-center justify-between">
+        <img src={`${import.meta.env.BASE_URL}logo.png`} alt="CheapDataHub" className="h-8 w-auto" />
+        <button onClick={handleLogout} className="p-2 text-gray-600">
+          <LogOut className="h-5 w-5" />
+        </button>
+      </div>
 
-        <main className="flex-1 overflow-y-auto">
+      <main className="flex-1 overflow-y-auto p-4 md:p-8">
+        <div className="mx-auto max-w-4xl">
           {children}
-        </main>
+        </div>
+      </main>
+
+      {/* Mobile bottom nav */}
+      <div className="md:hidden bg-white border-t border-gray-200 p-2 flex items-center justify-around">
+        {navigation.slice(0, 5).map((item) => (
+          <Link key={item.name} href={item.href}>
+            <a className={cn("p-2 rounded-lg flex flex-col items-center gap-1", location === item.href ? "text-primary" : "text-gray-500")}>
+              <item.icon className="h-5 w-5" />
+              <span className="text-[10px] font-medium">{item.name.split(' ')[0]}</span>
+            </a>
+          </Link>
+        ))}
       </div>
     </div>
   );
