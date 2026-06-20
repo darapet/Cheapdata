@@ -18,3 +18,12 @@ expertMode = true
 [postMerge]
 path = "scripts/post-merge.sh"
 timeoutMs = 20000
+
+[userenv]
+
+[userenv.shared]
+SUPABASE_URL = "https://vumuvcghlumvenmnaky.supabase.co"
+SUPABASE_ANON_KEY = "sb_publishable_UhIqZjLUKYN2maABbWpUKg"
+VITE_SUPABASE_URL = "https://vumuvcghlumvenmnaky.supabase.co"
+VITE_SUPABASE_ANON_KEY = "sb_publishable_UhIqZjLUKYN2maABbWpUKg"
+ADMIN_EMAIL = "daramolapeter98@gmail.com"

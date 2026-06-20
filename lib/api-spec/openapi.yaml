@@ -3,20 +3,34 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: CheapDataHub VTU & Bill Payment API
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: profile
+    description: User profile and wallet
+  - name: data-plans
+    description: Data plan catalog
+  - name: transactions
+    description: Transaction history
+  - name: services
+    description: VTU & bill services (data, airtime, cable, electricity)
+  - name: wallet
+    description: Wallet funding
+  - name: webhooks
+    description: Paystack webhook handlers
+  - name: admin
+    description: Admin operations
+
 paths:
   /healthz:
     get:
       operationId: healthCheck
       tags: [health]
       summary: Health check
-      description: Returns server health status
       responses:
         "200":
           description: Healthy
@@ -24,13 +38,648 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  # ─── Profile ────────────────────────────────────────────────────────────────
+  /profile:
+    get:
+      operationId: getProfile
+      tags: [profile]
+      summary: Get current user profile
+      responses:
+        "200":
+          description: Profile data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Profile"
+
+  /profile/pin:
+    post:
+      operationId: setupPin
+      tags: [profile]
+      summary: Set transaction PIN (first-time setup)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PinInput"
+      responses:
+        "200":
+          description: PIN set successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  /profile/pin/verify:
+    post:
+      operationId: verifyPin
+      tags: [profile]
+      summary: Verify transaction PIN before a service purchase
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PinInput"
+      responses:
+        "200":
+          description: PIN verification result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PinVerifyResponse"
+
+  # ─── Data Plans ─────────────────────────────────────────────────────────────
+  /data-plans:
+    get:
+      operationId: getDataPlans
+      tags: [data-plans]
+      summary: Get all available data plans grouped by network
+      responses:
+        "200":
+          description: Data plans list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/DataPlan"
+
+  /data-plans/{network}:
+    get:
+      operationId: getDataPlansByNetwork
+      tags: [data-plans]
+      summary: Get data plans for a specific network
+      parameters:
+        - name: network
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Network data plans
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/DataPlan"
+
+  # ─── Services ───────────────────────────────────────────────────────────────
+  /services/data:
+    post:
+      operationId: buyData
+      tags: [services]
+      summary: Buy data plan for a phone number
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DataPurchaseInput"
+      responses:
+        "200":
+          description: Data purchase result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ServiceResponse"
+
+  /services/airtime:
+    post:
+      operationId: buyAirtime
+      tags: [services]
+      summary: Buy airtime for a phone number
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AirtimePurchaseInput"
+      responses:
+        "200":
+          description: Airtime purchase result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ServiceResponse"
+
+  /services/cable:
+    post:
+      operationId: buyCable
+      tags: [services]
+      summary: Subscribe to cable TV plan
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CablePurchaseInput"
+      responses:
+        "200":
+          description: Cable purchase result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ServiceResponse"
+
+  /services/electricity:
+    post:
+      operationId: buyElectricity
+      tags: [services]
+      summary: Purchase electricity tokens
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ElectricityPurchaseInput"
+      responses:
+        "200":
+          description: Electricity purchase result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ServiceResponse"
+
+  # ─── Wallet ─────────────────────────────────────────────────────────────────
+  /wallet/fund/initialize:
+    post:
+      operationId: initializeWalletFunding
+      tags: [wallet]
+      summary: Initialize a wallet funding request and get payment details
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WalletFundInput"
+      responses:
+        "200":
+          description: Payment initialization details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WalletFundResponse"
+
+  /wallet/transactions:
+    get:
+      operationId: getWalletTransactions
+      tags: [wallet]
+      summary: Get user's wallet transaction history
+      responses:
+        "200":
+          description: Transaction history
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/WalletTransaction"
+
+  /wallet/summary:
+    get:
+      operationId: getWalletSummary
+      tags: [wallet]
+      summary: Get wallet summary — balance, total spent, transaction counts
+      responses:
+        "200":
+          description: Wallet summary stats
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WalletSummary"
+
+  # ─── Webhooks ───────────────────────────────────────────────────────────────
+  /webhooks/paystack:
+    post:
+      operationId: paystackWebhook
+      tags: [webhooks]
+      summary: Paystack charge.success webhook handler
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WebhookPayload"
+      responses:
+        "200":
+          description: Webhook acknowledged
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  # ─── Admin ──────────────────────────────────────────────────────────────────
+  /admin/users:
+    get:
+      operationId: adminGetUsers
+      tags: [admin]
+      summary: Get all registered users (admin only)
+      responses:
+        "200":
+          description: All users list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AdminUser"
+
+  /admin/transactions:
+    get:
+      operationId: adminGetTransactions
+      tags: [admin]
+      summary: Get all transactions across all users (admin only)
+      parameters:
+        - name: date
+          in: query
+          required: false
+          schema:
+            type: ["string", "null"]
+          description: Filter by date (YYYY-MM-DD)
+      responses:
+        "200":
+          description: All transactions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AdminTransaction"
+
+  /admin/transactions/export:
+    get:
+      operationId: adminExportTransactions
+      tags: [admin]
+      summary: Export all transactions as CSV download
+      parameters:
+        - name: date
+          in: query
+          required: false
+          schema:
+            type: ["string", "null"]
+      responses:
+        "200":
+          description: CSV file download
+          content:
+            text/csv:
+              schema:
+                type: string
+
+  /admin/stats:
+    get:
+      operationId: adminGetStats
+      tags: [admin]
+      summary: Dashboard stats — total revenue, active users, transaction counts
+      responses:
+        "200":
+          description: Admin statistics
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminStats"
+
+  /admin/settings:
+    get:
+      operationId: adminGetSettings
+      tags: [admin]
+      summary: Get system settings
+      responses:
+        "200":
+          description: System settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SystemSettings"
+    patch:
+      operationId: adminUpdateSettings
+      tags: [admin]
+      summary: Update system settings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SystemSettingsUpdate"
+      responses:
+        "200":
+          description: Updated settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SystemSettings"
+
 components:
   schemas:
     HealthStatus:
       type: object
+      required: [status]
       properties:
         status:
           type: string
-      required:
-        - status
 
+    SuccessResponse:
+      type: object
+      required: [success]
+      properties:
+        success:
+          type: boolean
+        message:
+          type: ["string", "null"]
+
+    Profile:
+      type: object
+      required: [id, email, full_name, username, phone, wallet_balance, is_pin_set]
+      properties:
+        id:
+          type: string
+        email:
+          type: string
+        full_name:
+          type: string
+        username:
+          type: string
+        phone:
+          type: string
+        address:
+          type: ["string", "null"]
+        wallet_balance:
+          type: number
+        is_pin_set:
+          type: boolean
+        created_at:
+          type: string
+
+    PinInput:
+      type: object
+      required: [pin]
+      properties:
+        pin:
+          type: string
+          minLength: 4
+          maxLength: 4
+
+    PinVerifyResponse:
+      type: object
+      required: [valid]
+      properties:
+        valid:
+          type: boolean
+
+    DataPlan:
+      type: object
+      required: [id, network, plan_name, data_size, retail_price, plan_id]
+      properties:
+        id:
+          type: integer
+        network:
+          type: string
+        plan_name:
+          type: string
+        data_size:
+          type: string
+        retail_price:
+          type: number
+        wholesale_price:
+          type: number
+        plan_id:
+          type: string
+        validity:
+          type: ["string", "null"]
+
+    DataPurchaseInput:
+      type: object
+      required: [phone, plan_id, pin]
+      properties:
+        phone:
+          type: string
+        plan_id:
+          type: string
+        network:
+          type: string
+        pin:
+          type: string
+
+    AirtimePurchaseInput:
+      type: object
+      required: [phone, network, amount, pin]
+      properties:
+        phone:
+          type: string
+        network:
+          type: string
+        amount:
+          type: number
+        pin:
+          type: string
+
+    CablePurchaseInput:
+      type: object
+      required: [smart_card_number, cable_provider, plan_id, pin]
+      properties:
+        smart_card_number:
+          type: string
+        cable_provider:
+          type: string
+        plan_id:
+          type: string
+        pin:
+          type: string
+
+    ElectricityPurchaseInput:
+      type: object
+      required: [meter_number, disco, amount, meter_type, pin]
+      properties:
+        meter_number:
+          type: string
+        disco:
+          type: string
+        amount:
+          type: number
+        meter_type:
+          type: string
+        pin:
+          type: string
+
+    ServiceResponse:
+      type: object
+      required: [success, message]
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+        token:
+          type: ["string", "null"]
+        reference:
+          type: ["string", "null"]
+        new_balance:
+          type: ["number", "null"]
+
+    WalletFundInput:
+      type: object
+      required: [amount]
+      properties:
+        amount:
+          type: number
+
+    WalletFundResponse:
+      type: object
+      required: [base_amount, processing_fee, total_amount, reference]
+      properties:
+        base_amount:
+          type: number
+        processing_fee:
+          type: number
+        total_amount:
+          type: number
+        reference:
+          type: string
+        payment_instruction:
+          type: string
+
+    WalletTransaction:
+      type: object
+      required: [id, type, amount, description, status, created_at]
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+        amount:
+          type: number
+        description:
+          type: string
+        status:
+          type: string
+        reference:
+          type: ["string", "null"]
+        created_at:
+          type: string
+
+    WalletSummary:
+      type: object
+      required: [balance, total_funded, total_spent, transaction_count]
+      properties:
+        balance:
+          type: number
+        total_funded:
+          type: number
+        total_spent:
+          type: number
+        transaction_count:
+          type: integer
+        data_purchases:
+          type: integer
+        airtime_purchases:
+          type: integer
+
+    AdminUser:
+      type: object
+      required: [id, email, full_name, username, phone, wallet_balance, created_at]
+      properties:
+        id:
+          type: string
+        email:
+          type: string
+        full_name:
+          type: string
+        username:
+          type: string
+        phone:
+          type: string
+        address:
+          type: ["string", "null"]
+        wallet_balance:
+          type: number
+        is_pin_set:
+          type: boolean
+        created_at:
+          type: string
+
+    AdminTransaction:
+      type: object
+      required: [id, user_id, user_email, type, amount, description, status, created_at]
+      properties:
+        id:
+          type: string
+        user_id:
+          type: string
+        user_email:
+          type: string
+        user_name:
+          type: string
+        type:
+          type: string
+        amount:
+          type: number
+        description:
+          type: string
+        status:
+          type: string
+        reference:
+          type: ["string", "null"]
+        created_at:
+          type: string
+
+    AdminStats:
+      type: object
+      required: [total_users, total_transactions, total_revenue, total_disbursed]
+      properties:
+        total_users:
+          type: integer
+        total_transactions:
+          type: integer
+        total_revenue:
+          type: number
+        total_disbursed:
+          type: number
+        today_transactions:
+          type: integer
+        today_revenue:
+          type: number
+        active_users_today:
+          type: integer
+
+    SystemSettings:
+      type: object
+      required: [id, active_payment_gateway]
+      properties:
+        id:
+          type: integer
+        active_payment_gateway:
+          type: string
+        cheapdatahub_funding_account:
+          type: ["string", "null"]
+        updated_at:
+          type: ["string", "null"]
+
+    SystemSettingsUpdate:
+      type: object
+      properties:
+        active_payment_gateway:
+          type: string
+        paystack_secret_key:
+          type: ["string", "null"]
+        flutterwave_secret_key:
+          type: ["string", "null"]
+        cheapdatahub_api_key:
+          type: ["string", "null"]
+        cheapdatahub_funding_account:
+          type: ["string", "null"]
+        brevo_api_key:
+          type: ["string", "null"]
+
+    WebhookPayload:
+      type: object
+      additionalProperties: true
+      properties:
+        event:
+          type: string
+        data:
+          type: object
+          additionalProperties: true
