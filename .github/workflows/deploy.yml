@@ -25,6 +25,12 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "24"
+          cache: "npm"
+          cache-dependency-path: artifacts/cheapdata/package.ci.json
+
+      - name: Use standalone CI package.json
+        working-directory: artifacts/cheapdata
+        run: cp package.ci.json package.json
 
       - name: Install dependencies
         working-directory: artifacts/cheapdata
