@@ -1,4 +1,4 @@
-import { useAdminGetUsers, getAdminGetUsersQueryKey } from "@workspace/api-client-react";
+import { useAdminGetUsers, getAdminGetUsersQueryKey } from "@/lib/supabase-hooks";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatNaira } from "@/lib/utils";
