@@ -86,7 +86,10 @@ CREATE POLICY "Admin can view all transactions"
 CREATE TABLE IF NOT EXISTS public.system_settings (
   id SERIAL PRIMARY KEY,
   active_payment_gateway TEXT NOT NULL DEFAULT 'paystack',
+  admin_email TEXT,
+  paystack_public_key TEXT,
   paystack_secret_key TEXT,
+  flutterwave_public_key TEXT,
   flutterwave_secret_key TEXT,
   cheapdatahub_api_key TEXT,
   cheapdatahub_base_url TEXT,
@@ -97,6 +100,12 @@ CREATE TABLE IF NOT EXISTS public.system_settings (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- ─── Migration: add missing columns to existing system_settings table ─────────
+-- Run these if your table already exists (safe to run multiple times):
+ALTER TABLE public.system_settings ADD COLUMN IF NOT EXISTS admin_email TEXT;
+ALTER TABLE public.system_settings ADD COLUMN IF NOT EXISTS paystack_public_key TEXT;
+ALTER TABLE public.system_settings ADD COLUMN IF NOT EXISTS flutterwave_public_key TEXT;
 
 ALTER TABLE public.system_settings ENABLE ROW LEVEL SECURITY;
 
