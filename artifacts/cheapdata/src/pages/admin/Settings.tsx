@@ -1,7 +1,10 @@
 import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { AdminLayout } from "@/components/layout/AdminLayout";
-import { useAdminGetSettings, useAdminUpdateSettings, getGetSystemSettingsQueryKey } from "@/lib/supabase-hooks";
+import {
+  useAdminGetSettings, useAdminUpdateSettings, useAdminTestPaystack, useAdminTestBrevo,
+  getGetSystemSettingsQueryKey,
+} from "@/lib/supabase-hooks";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -9,7 +12,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
-import { Loader2, Eye, EyeOff, CheckCircle } from "lucide-react";
+import { Loader2, Eye, EyeOff, CheckCircle, XCircle, FlaskConical } from "lucide-react";
 
 // Secret field with show/hide toggle and "saved" indicator
 function SecretInput({
@@ -47,6 +50,21 @@ function SecretInput({
   );
 }
 
+// Inline result banner shown after a test
+function TestResult({ result }: { result: { ok: boolean; message: string } | null }) {
+  if (!result) return null;
+  return (
+    <div className={`flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium ${
+      result.ok ? "bg-green-50 text-green-700 border border-green-200" : "bg-red-50 text-red-700 border border-red-200"
+    }`}>
+      {result.ok
+        ? <CheckCircle className="h-4 w-4 shrink-0" />
+        : <XCircle className="h-4 w-4 shrink-0" />}
+      {result.message}
+    </div>
+  );
+}
+
 type SettingsForm = {
   active_payment_gateway: string;
   admin_email: string;
@@ -65,10 +83,15 @@ type SettingsForm = {
 export default function AdminSettings() {
   const { data: settings, isLoading } = useAdminGetSettings();
   const updateSettings = useAdminUpdateSettings();
+  const testPaystack = useAdminTestPaystack();
+  const testBrevo = useAdminTestBrevo();
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  const { register, handleSubmit, reset, formState: { isDirty } } = useForm<SettingsForm>({
+  const [paystackResult, setPaystackResult] = useState<{ ok: boolean; message: string } | null>(null);
+  const [brevoResult, setBrevoResult] = useState<{ ok: boolean; message: string } | null>(null);
+
+  const { register, handleSubmit, reset } = useForm<SettingsForm>({
     defaultValues: {
       active_payment_gateway: "paystack",
       admin_email: "",
@@ -85,7 +108,6 @@ export default function AdminSettings() {
     },
   });
 
-  // ── BUG FIX: populate ALL fields (including secret keys) from loaded settings ──
   useEffect(() => {
     if (settings) {
       reset({
@@ -115,6 +137,22 @@ export default function AdminSettings() {
       onError: (err: any) => {
         toast({ title: "Save Failed", description: err.message, variant: "destructive" });
       },
+    });
+  };
+
+  const handleTestPaystack = () => {
+    setPaystackResult(null);
+    testPaystack.mutate(undefined, {
+      onSuccess: (message) => setPaystackResult({ ok: true, message: message as string }),
+      onError: (err: any) => setPaystackResult({ ok: false, message: err.message }),
+    });
+  };
+
+  const handleTestBrevo = () => {
+    setBrevoResult(null);
+    testBrevo.mutate(undefined, {
+      onSuccess: (message) => setBrevoResult({ ok: true, message: message as string }),
+      onError: (err: any) => setBrevoResult({ ok: false, message: err.message }),
     });
   };
 
@@ -168,6 +206,22 @@ export default function AdminSettings() {
               </div>
               <SecretInput id="paystack_secret_key" label="Secret Key" registration={register("paystack_secret_key")}
                 hasSavedValue={!!settings?.paystack_secret_key} />
+              <TestResult result={paystackResult} />
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleTestPaystack}
+                disabled={testPaystack.isPending || !settings?.paystack_secret_key}
+                className="flex items-center gap-2"
+              >
+                {testPaystack.isPending
+                  ? <><Loader2 className="h-4 w-4 animate-spin" /> Testing...</>
+                  : <><FlaskConical className="h-4 w-4" /> Test Paystack Key</>}
+              </Button>
+              {!settings?.paystack_secret_key && (
+                <p className="text-xs text-gray-400">Save your secret key first to enable testing.</p>
+              )}
             </CardContent>
           </Card>
 
@@ -231,6 +285,23 @@ export default function AdminSettings() {
                 <Label htmlFor="brevo_sender_name">Sender Name</Label>
                 <Input id="brevo_sender_name" placeholder="CheapDataHub" {...register("brevo_sender_name")} />
               </div>
+              <TestResult result={brevoResult} />
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleTestBrevo}
+                disabled={testBrevo.isPending || !settings?.brevo_api_key}
+                className="flex items-center gap-2"
+              >
+                {testBrevo.isPending
+                  ? <><Loader2 className="h-4 w-4 animate-spin" /> Sending...</>
+                  : <><FlaskConical className="h-4 w-4" /> Send Test Email</>}
+              </Button>
+              {!settings?.brevo_api_key && (
+                <p className="text-xs text-gray-400">Save your Brevo API key first to enable testing.</p>
+              )}
+              <p className="text-xs text-gray-400">Test email will be sent to the Admin Email address set in General settings.</p>
             </CardContent>
           </Card>
 
