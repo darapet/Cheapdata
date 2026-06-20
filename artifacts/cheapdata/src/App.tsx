@@ -1,9 +1,14 @@
-import { Switch, Route, Router as WouterRouter } from "wouter";
+import { Switch, Route, Router as WouterRouter, Redirect } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { ProtectedRoute } from "@/components/ProtectedRoute";
 
+// Layouts & Auth
+import { ProtectedRoute } from "@/components/ProtectedRoute";
+import { AppLayout } from "@/components/layout/AppLayout";
+import { AdminLayout } from "@/components/layout/AdminLayout";
+
+// User Pages
 import Login from "@/pages/Login";
 import Register from "@/pages/Register";
 import Dashboard from "@/pages/Dashboard";
@@ -14,67 +19,90 @@ import Electricity from "@/pages/Electricity";
 import FundWallet from "@/pages/FundWallet";
 import Transactions from "@/pages/Transactions";
 import Profile from "@/pages/Profile";
-import NotFound from "@/pages/not-found";
 
+// Admin Pages
 import AdminDashboard from "@/pages/admin/Dashboard";
-import AdminSettings from "@/pages/admin/Settings";
 import AdminUsers from "@/pages/admin/Users";
 import AdminTransactions from "@/pages/admin/Transactions";
+import AdminSettings from "@/pages/admin/Settings";
 
-const queryClient = new QueryClient({
-  defaultOptions: { queries: { retry: 1, staleTime: 30_000 } },
-});
+import NotFound from "@/pages/not-found";
+
+const queryClient = new QueryClient();
 
 function Router() {
   return (
     <Switch>
+      <Route path="/" component={() => <Redirect to="/dashboard" />} />
       <Route path="/login" component={Login} />
       <Route path="/register" component={Register} />
-      <Route path="/dashboard">
-        <ProtectedRoute><Dashboard /></ProtectedRoute>
-      </Route>
-      <Route path="/buy-data">
-        <ProtectedRoute><BuyData /></ProtectedRoute>
-      </Route>
-      <Route path="/buy-airtime">
-        <ProtectedRoute><BuyAirtime /></ProtectedRoute>
-      </Route>
-      <Route path="/cable-tv">
-        <ProtectedRoute><CableTV /></ProtectedRoute>
-      </Route>
-      <Route path="/electricity">
-        <ProtectedRoute><Electricity /></ProtectedRoute>
-      </Route>
-      <Route path="/fund-wallet">
-        <ProtectedRoute><FundWallet /></ProtectedRoute>
-      </Route>
-      <Route path="/transactions">
-        <ProtectedRoute><Transactions /></ProtectedRoute>
-      </Route>
-      <Route path="/profile">
-        <ProtectedRoute><Profile /></ProtectedRoute>
-      </Route>
+
+      {/* Admin Routes */}
       <Route path="/admin">
-        <ProtectedRoute adminOnly><AdminDashboard /></ProtectedRoute>
+        {() => <Redirect to="/admin/dashboard" />}
       </Route>
-      <Route path="/admin/settings">
-        <ProtectedRoute adminOnly><AdminSettings /></ProtectedRoute>
+      <Route path="/admin/dashboard">
+        {() => (
+          <ProtectedRoute adminOnly>
+            <AdminLayout>
+              <AdminDashboard />
+            </AdminLayout>
+          </ProtectedRoute>
+        )}
       </Route>
       <Route path="/admin/users">
-        <ProtectedRoute adminOnly><AdminUsers /></ProtectedRoute>
+        {() => (
+          <ProtectedRoute adminOnly>
+            <AdminLayout>
+              <AdminUsers />
+            </AdminLayout>
+          </ProtectedRoute>
+        )}
       </Route>
       <Route path="/admin/transactions">
-        <ProtectedRoute adminOnly><AdminTransactions /></ProtectedRoute>
+        {() => (
+          <ProtectedRoute adminOnly>
+            <AdminLayout>
+              <AdminTransactions />
+            </AdminLayout>
+          </ProtectedRoute>
+        )}
       </Route>
-      <Route path="/">
-        <ProtectedRoute><Dashboard /></ProtectedRoute>
+      <Route path="/admin/settings">
+        {() => (
+          <ProtectedRoute adminOnly>
+            <AdminLayout>
+              <AdminSettings />
+            </AdminLayout>
+          </ProtectedRoute>
+        )}
       </Route>
-      <Route component={NotFound} />
+
+      {/* User Routes */}
+      <Route path="/:rest*">
+        {() => (
+          <ProtectedRoute>
+            <AppLayout>
+              <Switch>
+                <Route path="/dashboard" component={Dashboard} />
+                <Route path="/buy-data" component={BuyData} />
+                <Route path="/buy-airtime" component={BuyAirtime} />
+                <Route path="/cable-tv" component={CableTV} />
+                <Route path="/electricity" component={Electricity} />
+                <Route path="/fund-wallet" component={FundWallet} />
+                <Route path="/transactions" component={Transactions} />
+                <Route path="/profile" component={Profile} />
+                <Route component={NotFound} />
+              </Switch>
+            </AppLayout>
+          </ProtectedRoute>
+        )}
+      </Route>
     </Switch>
   );
 }
 
-export default function App() {
+function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
@@ -86,3 +114,5 @@ export default function App() {
     </QueryClientProvider>
   );
 }
+
+export default App;
