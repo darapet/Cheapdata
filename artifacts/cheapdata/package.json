@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite --config vite.config.ts --host 0.0.0.0",
     "build": "vite build --config vite.config.ts",
+    "build:gh": "vite build --config vite.config.gh-pages.ts",
     "serve": "vite preview --config vite.config.ts --host 0.0.0.0",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
@@ -44,7 +45,6 @@
     "@tailwindcss/typography": "^0.5.15",
     "@tailwindcss/vite": "catalog:",
     "@tanstack/react-query": "catalog:",
-    "@types/crypto-js": "^4.2.2",
     "@types/node": "catalog:",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
@@ -76,7 +76,6 @@
     "zod": "catalog:"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.108.2",
-    "crypto-js": "^4.2.0"
+    "@supabase/supabase-js": "^2.108.2"
   }
 }
