@@ -1,152 +1,95 @@
-import { useState } from "react";
-import { useForm } from "react-hook-form";
-import { AppLayout } from "@/components/layout/AppLayout";
-import { useGetProfile, useUpdateProfile, useSetupPin, getGetProfileQueryKey } from "@/lib/supabase-hooks";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { useGetProfile, getGetProfileQueryKey } from "@/lib/supabase-hooks";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { useToast } from "@/hooks/use-toast";
-import { useQueryClient } from "@tanstack/react-query";
+import { Skeleton } from "@/components/ui/skeleton";
 import { formatNaira } from "@/lib/utils";
-import { supabase } from "@/lib/supabase";
-import { useLocation } from "wouter";
-import { Loader2, User, Lock, LogOut, Shield } from "lucide-react";
+import { User, Mail, Phone, MapPin, Calendar, ShieldCheck } from "lucide-react";
+import { format } from "date-fns";
 
 export default function Profile() {
-  const { data: profile, isLoading } = useGetProfile();
-  const updateProfile = useUpdateProfile();
-  const setupPin = useSetupPin();
-  const { toast } = useToast();
-  const queryClient = useQueryClient();
-  const [, setLocation] = useLocation();
-  const [changingPin, setChangingPin] = useState(false);
-  const [pin, setPin] = useState("");
-  const [confirmPin, setConfirmPin] = useState("");
-
-  const { register, handleSubmit, formState: { errors, isDirty } } = useForm({
-    values: { full_name: profile?.full_name ?? "", phone: profile?.phone ?? "" },
+  const { data: profile, isLoading } = useGetProfile({
+    query: { queryKey: getGetProfileQueryKey() }
   });
 
-  const onSaveProfile = async (data: { full_name: string; phone: string }) => {
-    updateProfile.mutate({ data }, {
-      onSuccess: () => {
-        toast({ title: "Profile Updated" });
-        queryClient.invalidateQueries({ queryKey: getGetProfileQueryKey() });
-      },
-      onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
-    });
-  };
-
-  const onChangePin = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (pin.length !== 4) return toast({ title: "Error", description: "PIN must be 4 digits", variant: "destructive" });
-    if (pin !== confirmPin) return toast({ title: "Error", description: "PINs do not match", variant: "destructive" });
-    setupPin.mutate({ data: { pin } }, {
-      onSuccess: () => {
-        toast({ title: "PIN Updated!" });
-        setPin(""); setConfirmPin(""); setChangingPin(false);
-        queryClient.invalidateQueries({ queryKey: getGetProfileQueryKey() });
-      },
-      onError: () => toast({ title: "Error", description: "Failed to update PIN", variant: "destructive" }),
-    });
-  };
-
-  const handleLogout = async () => {
-    await supabase.auth.signOut();
-    setLocation("/login");
-  };
-
   if (isLoading) {
-    return <AppLayout><div className="flex h-full items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div></AppLayout>;
+    return (
+      <div className="space-y-6 max-w-2xl mx-auto">
+        <Skeleton className="h-32 w-full rounded-2xl" />
+        <Skeleton className="h-64 w-full rounded-2xl" />
+      </div>
+    );
   }
 
-  return (
-    <AppLayout>
-      <div className="p-6 max-w-2xl mx-auto space-y-6">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Profile</h1>
-          <p className="text-sm text-gray-500 mt-1">Manage your account settings</p>
-        </div>
+  if (!profile) return null;
 
-        {/* Wallet summary */}
-        <div className="bg-gradient-to-br from-primary to-violet-700 rounded-2xl p-5 text-white">
-          <p className="text-sm text-white/70">Wallet Balance</p>
-          <p className="text-3xl font-bold mt-1">{formatNaira(profile?.wallet_balance ?? 0)}</p>
-          <div className="flex items-center gap-2 mt-3">
-            <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center font-bold text-sm">
-              {profile?.full_name?.[0]?.toUpperCase() ?? "U"}
-            </div>
-            <div>
-              <p className="text-sm font-medium">{profile?.full_name}</p>
-              <p className="text-xs text-white/60">{profile?.email}</p>
+  return (
+    <div className="space-y-6 max-w-2xl mx-auto">
+      <div>
+        <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+          <User className="h-6 w-6 text-primary" />
+          My Profile
+        </h1>
+        <p className="text-gray-500 mt-1">Manage your account details and settings</p>
+      </div>
+
+      <Card className="overflow-hidden border-0 shadow-md">
+        <div className="h-24 bg-gradient-to-r from-primary to-red-400" />
+        <CardContent className="pt-0 relative">
+          <div className="w-20 h-20 bg-white rounded-full p-1 -mt-10 border-4 border-white shadow-sm flex items-center justify-center">
+            <div className="w-full h-full bg-red-100 text-primary rounded-full flex items-center justify-center text-2xl font-bold">
+              {profile.full_name?.charAt(0) || 'U'}
             </div>
           </div>
-        </div>
+          
+          <div className="mt-4">
+            <h2 className="text-2xl font-bold text-gray-900">{profile.full_name}</h2>
+            <p className="text-gray-500">@{profile.username}</p>
+          </div>
+          
+          <div className="flex items-center gap-2 mt-4 inline-flex px-3 py-1 bg-green-50 text-green-700 rounded-full text-sm font-medium">
+            <ShieldCheck className="h-4 w-4" />
+            Verified Account
+          </div>
+        </CardContent>
+      </Card>
 
-        {/* Edit profile */}
-        <Card>
-          <CardHeader><CardTitle className="flex items-center gap-2 text-base"><User className="h-4 w-4" /> Personal Info</CardTitle></CardHeader>
-          <CardContent>
-            <form onSubmit={handleSubmit(onSaveProfile)} className="space-y-4">
-              <div className="space-y-2">
-                <Label>Full Name</Label>
-                <Input {...register("full_name", { required: "Name is required" })} />
-                {errors.full_name && <p className="text-xs text-red-500">{errors.full_name.message}</p>}
-              </div>
-              <div className="space-y-2">
-                <Label>Phone</Label>
-                <Input {...register("phone")} />
-              </div>
-              <div className="space-y-2">
-                <Label>Email</Label>
-                <Input value={profile?.email ?? ""} disabled className="bg-gray-50" />
-              </div>
-              <Button type="submit" disabled={updateProfile.isPending || !isDirty} className="w-full">
-                {updateProfile.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save Changes"}
-              </Button>
-            </form>
-          </CardContent>
-        </Card>
-
-        {/* Change PIN */}
-        <Card>
-          <CardHeader><CardTitle className="flex items-center gap-2 text-base"><Shield className="h-4 w-4" /> Transaction PIN</CardTitle></CardHeader>
-          <CardContent>
-            {!changingPin ? (
-              <Button variant="outline" onClick={() => setChangingPin(true)} className="w-full">
-                <Lock className="h-4 w-4 mr-2" />{profile?.transaction_pin ? "Change PIN" : "Set PIN"}
-              </Button>
-            ) : (
-              <form onSubmit={onChangePin} className="space-y-4">
-                <div className="space-y-2">
-                  <Label>New PIN</Label>
-                  <Input type="password" inputMode="numeric" maxLength={4} value={pin}
-                    onChange={(e) => setPin(e.target.value.replace(/[^0-9]/g, ""))}
-                    placeholder="0000" className="text-center text-2xl tracking-[1em]" />
-                </div>
-                <div className="space-y-2">
-                  <Label>Confirm PIN</Label>
-                  <Input type="password" inputMode="numeric" maxLength={4} value={confirmPin}
-                    onChange={(e) => setConfirmPin(e.target.value.replace(/[^0-9]/g, ""))}
-                    placeholder="0000" className="text-center text-2xl tracking-[1em]" />
-                </div>
-                <div className="flex gap-2">
-                  <Button type="button" variant="outline" onClick={() => setChangingPin(false)} className="flex-1">Cancel</Button>
-                  <Button type="submit" className="flex-1" disabled={setupPin.isPending}>
-                    {setupPin.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save PIN"}
-                  </Button>
-                </div>
-              </form>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Logout */}
-        <Button variant="destructive" className="w-full" onClick={handleLogout}>
-          <LogOut className="h-4 w-4 mr-2" /> Logout
-        </Button>
-      </div>
-    </AppLayout>
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg">Account Information</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="space-y-1 border-b border-gray-100 pb-4">
+              <p className="text-sm font-medium text-gray-500 flex items-center gap-2">
+                <Mail className="h-4 w-4" /> Email Address
+              </p>
+              <p className="font-semibold text-gray-900">{profile.email}</p>
+            </div>
+            
+            <div className="space-y-1 border-b border-gray-100 pb-4">
+              <p className="text-sm font-medium text-gray-500 flex items-center gap-2">
+                <Phone className="h-4 w-4" /> Phone Number
+              </p>
+              <p className="font-semibold text-gray-900">{profile.phone}</p>
+            </div>
+            
+            <div className="space-y-1 border-b border-gray-100 pb-4">
+              <p className="text-sm font-medium text-gray-500 flex items-center gap-2">
+                <MapPin className="h-4 w-4" /> Address
+              </p>
+              <p className="font-semibold text-gray-900">{profile.address || 'Not provided'}</p>
+            </div>
+            
+            <div className="space-y-1 border-b border-gray-100 pb-4">
+              <p className="text-sm font-medium text-gray-500 flex items-center gap-2">
+                <Calendar className="h-4 w-4" /> Member Since
+              </p>
+              <p className="font-semibold text-gray-900">
+                {profile.created_at ? format(new Date(profile.created_at), 'MMMM d, yyyy') : 'Unknown'}
+              </p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
   );
 }
