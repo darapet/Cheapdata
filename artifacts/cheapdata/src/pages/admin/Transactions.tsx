@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useAdminGetTransactions, getAdminGetTransactionsQueryKey } from "@workspace/api-client-react";
+import { useAdminGetTransactions, getAdminGetTransactionsQueryKey } from "@/lib/supabase-hooks";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,8 +16,26 @@ export default function AdminTransactions() {
   });
 
   const handleDownloadCSV = () => {
-    // Basic CSV download logic since we're generating client-side for demo or using the API directly
-    window.open(`/api/admin/transactions/export${date ? `?date=${date}` : ''}`, '_blank');
+    if (!transactions || transactions.length === 0) return;
+    const headers = ['Reference', 'Date', 'User', 'Email', 'Type', 'Description', 'Amount', 'Status'];
+    const rows = transactions.map((tx: any) => [
+      tx.reference || tx.id?.slice(0, 8) || '',
+      tx.created_at ? new Date(tx.created_at).toLocaleString() : '',
+      tx.user_name || '',
+      tx.user_email || '',
+      tx.type || '',
+      tx.description || '',
+      tx.amount ?? '',
+      tx.status || '',
+    ]);
+    const csv = [headers, ...rows].map((r) => r.map(String).join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `transactions${date ? `-${date}` : ''}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   return (
