@@ -343,3 +343,18 @@ export function useAdminTestBrevo() {
     },
   })
 }
+
+// ── Admin: Test Flutterwave key ───────────────────────────────────────────────
+export function useAdminTestFlutterwave() {
+  return useMutation({
+    mutationFn: async () => {
+      const res = await fetch('/api/admin/test-flutterwave', {
+        method: 'POST',
+        headers: await authHeaders(),
+      })
+      const body = await res.json() as { ok?: boolean; message?: string; error?: string }
+      if (!res.ok) throw new Error(body.error ?? 'Test failed')
+      return body.message ?? 'Success'
+    },
+  })
+}
