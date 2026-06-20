@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardFooter } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
-import { Zap, Loader2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
 
 const loginSchema = z.object({
   email: z.string().email("Invalid email address"),
@@ -46,7 +46,6 @@ export default function Login() {
     }
 
     if (data.session) {
-      // Ensure profile row exists (upsert is safe — no-op if already there)
       const user = data.session.user;
       await supabase.from('profiles').upsert({
         id: user.id,
@@ -69,12 +68,11 @@ export default function Login() {
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
       <div className="sm:mx-auto sm:w-full sm:max-w-md flex flex-col items-center">
-        <div className="h-12 w-12 rounded-lg bg-primary flex items-center justify-center mb-4">
-          <Zap className="h-7 w-7 text-white" />
-        </div>
-        <h2 className="text-center text-3xl font-bold tracking-tight text-gray-900">
-          CheapDataHub
-        </h2>
+        <img
+          src={`${import.meta.env.BASE_URL}logo.png`}
+          alt="CheapDataHub"
+          className="h-20 w-auto mb-4"
+        />
         <p className="mt-1 text-gray-500">Sign in to your account</p>
       </div>
 
