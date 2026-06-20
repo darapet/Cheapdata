@@ -10,14 +10,14 @@ import { formatNaira } from "@/lib/utils";
 import { Loader2, Wallet, CheckCircle2 } from "lucide-react";
 
 declare global {
-  interface Window { PaystackPop: any; }
+  interface Window { PaystackPop: any; FlutterwaveCheckout: any; }
 }
 
-function loadPaystackScript(): Promise<void> {
+function loadScript(src: string, readyCheck: () => boolean): Promise<void> {
   return new Promise((resolve) => {
-    if (window.PaystackPop) return resolve();
+    if (readyCheck()) return resolve();
     const script = document.createElement('script');
-    script.src = 'https://js.paystack.co/v1/inline.js';
+    script.src = src;
     script.onload = () => resolve();
     document.body.appendChild(script);
   });
@@ -47,10 +47,12 @@ export default function FundWallet() {
     try {
       const { data: settings } = await supabase
         .from('system_settings')
-        .select('paystack_public_key')
+        .select('active_payment_gateway, paystack_public_key, flutterwave_public_key')
         .maybeSingle();
 
-      const publicKey = settings?.paystack_public_key;
+      const gateway = settings?.active_payment_gateway || 'paystack';
+      const publicKey = gateway === 'flutterwave' ? settings?.flutterwave_public_key : settings?.paystack_public_key;
+
       if (!publicKey) {
         toast({ title: "Payment gateway not configured", description: "Please contact the admin to set up payment keys.", variant: "destructive" });
         setIsPaying(false);
@@ -70,26 +72,46 @@ export default function FundWallet() {
         reference,
       });
 
-      await loadPaystackScript();
+      const onPaid = () => {
+        setIsPaying(false);
+        setSuccess(true);
+        toast({ title: "Payment Received!", description: "Your wallet will be credited within a few seconds." });
+        setTimeout(() => refetchProfile(), 3000);
+      };
+      const onCancelled = () => {
+        setIsPaying(false);
+        toast({ title: "Cancelled", description: "Payment was cancelled.", variant: "destructive" });
+      };
 
-      const handler = window.PaystackPop.setup({
-        key: publicKey,
-        email: profile?.email || user.email,
-        amount: totalAmount * 100,
-        ref: reference,
-        currency: 'NGN',
-        onSuccess: () => {
-          setIsPaying(false);
-          setSuccess(true);
-          toast({ title: "Payment Received!", description: "Your wallet will be credited within a few seconds." });
-          setTimeout(() => refetchProfile(), 3000);
-        },
-        onCancel: () => {
-          setIsPaying(false);
-          toast({ title: "Cancelled", description: "Payment was cancelled.", variant: "destructive" });
-        },
-      });
-      handler.openIframe();
+      if (gateway === 'flutterwave') {
+        await loadScript('https://checkout.flutterwave.com/v3.js', () => !!window.FlutterwaveCheckout);
+        window.FlutterwaveCheckout({
+          public_key: publicKey,
+          tx_ref: reference,
+          amount: totalAmount,
+          currency: 'NGN',
+          payment_options: 'card,mobilemoney,ussd,banktransfer',
+          customer: { email: profile?.email || user.email || '', name: profile?.full_name || '' },
+          customizations: { title: 'CheapDataHub', description: 'Wallet Funding' },
+          callback: (response: any) => {
+            if (response.status === 'successful' || response.status === 'completed') onPaid();
+            else onCancelled();
+          },
+          onclose: onCancelled,
+        });
+      } else {
+        await loadScript('https://js.paystack.co/v1/inline.js', () => !!window.PaystackPop);
+        const handler = window.PaystackPop.setup({
+          key: publicKey,
+          email: profile?.email || user.email,
+          amount: totalAmount * 100,
+          ref: reference,
+          currency: 'NGN',
+          onSuccess: onPaid,
+          onCancel: onCancelled,
+        });
+        handler.openIframe();
+      }
     } catch (err: any) {
       setIsPaying(false);
       toast({ title: "Error", description: err.message || "Failed to initialize payment", variant: "destructive" });
@@ -118,7 +140,7 @@ export default function FundWallet() {
           <Wallet className="h-6 w-6 text-primary" />
           Fund Wallet
         </h1>
-        <p className="text-gray-500 mt-1">Add money to your CheapDataHub wallet securely via Paystack</p>
+        <p className="text-gray-500 mt-1">Add money securely via card, bank transfer, or USSD</p>
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <Card>
@@ -130,14 +152,7 @@ export default function FundWallet() {
             <form onSubmit={handlePay} className="space-y-6">
               <div className="space-y-2">
                 <Label htmlFor="amount" className="text-base">Amount to Fund (N)</Label>
-                <Input
-                  id="amount"
-                  type="text"
-                  value={amount}
-                  onChange={(e) => setAmount(e.target.value.replace(/[^0-9]/g, ''))}
-                  placeholder="5000"
-                  className="h-12 text-lg font-bold"
-                />
+                <Input id="amount" type="text" value={amount} onChange={(e) => setAmount(e.target.value.replace(/[^0-9]/g, ''))} placeholder="5000" className="h-12 text-lg font-bold" />
               </div>
               {amount && Number(amount) > 0 && (
                 <div className="bg-blue-50 text-blue-900 p-4 rounded-xl text-sm space-y-2">
@@ -150,7 +165,7 @@ export default function FundWallet() {
               )}
               <Button type="submit" className="w-full h-14 text-lg" disabled={!amount || isPaying}>
                 {isPaying ? <Loader2 className="h-5 w-5 animate-spin mr-2" /> : null}
-                {isPaying ? "Opening payment..." : `Pay ${amount ? formatNaira(totalAmount) : ""} with Paystack`}
+                {isPaying ? "Opening payment..." : `Pay ${amount ? formatNaira(totalAmount) : ""} securely`}
               </Button>
             </form>
           </CardContent>
@@ -170,10 +185,10 @@ export default function FundWallet() {
           <Card className="bg-gray-50 border-gray-200">
             <CardContent className="pt-6 text-sm text-gray-600 space-y-2">
               <p className="font-medium text-gray-800">How it works</p>
-              <p>1. Enter the amount you want to add to your wallet.</p>
-              <p>2. Click Pay - a secure Paystack popup will open.</p>
-              <p>3. Choose your payment method (card, transfer, USSD).</p>
-              <p>4. Your wallet is credited automatically after confirmation.</p>
+              <p>1. Enter the amount you want to add.</p>
+              <p>2. Click Pay — a secure popup will open.</p>
+              <p>3. Choose your payment method and complete payment.</p>
+              <p>4. Your wallet is credited automatically.</p>
             </CardContent>
           </Card>
         </div>
