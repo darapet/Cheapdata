@@ -18,6 +18,27 @@ async function getEmailSettings(): Promise<EmailSettings> {
   };
 }
 
+async function sendEmail(settings: EmailSettings, to: { email: string; name: string }, subject: string, html: string): Promise<void> {
+  if (!settings.brevo_api_key) return;
+  try {
+    await fetch("https://api.brevo.com/v3/smtp/email", {
+      method: "POST",
+      headers: {
+        "api-key": settings.brevo_api_key,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        sender: { name: settings.brevo_sender_name, email: settings.brevo_sender_email },
+        to: [{ email: to.email, name: to.name }],
+        subject,
+        htmlContent: html,
+      }),
+    });
+  } catch {
+    // Non-fatal — never crash the main flow
+  }
+}
+
 export interface TransactionEmailParams {
   toEmail: string;
   toName: string;
@@ -47,20 +68,16 @@ export async function sendTransactionEmail(params: TransactionEmailParams): Prom
   <table width="100%" cellpadding="0" cellspacing="0" style="background:#f3f4f6;padding:40px 0;">
     <tr><td align="center">
       <table width="580" cellpadding="0" cellspacing="0" style="background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,.08);">
-        <!-- Header -->
         <tr>
           <td style="background:linear-gradient(135deg,#7c3aed,#6d28d9);padding:32px;text-align:center;">
             <h1 style="margin:0;color:#fff;font-size:22px;font-weight:700;letter-spacing:-.5px;">${settings.brevo_sender_name}</h1>
             <p style="margin:6px 0 0;color:rgba(255,255,255,.75);font-size:13px;">Transaction Notification</p>
           </td>
         </tr>
-        <!-- Body -->
         <tr>
           <td style="padding:32px;">
             <p style="margin:0 0 8px;font-size:16px;color:#374151;">Hi <strong>${params.toName}</strong>,</p>
             <p style="margin:0 0 24px;font-size:14px;color:#6b7280;">Your transaction has been processed. Here are the details:</p>
-
-            <!-- Detail card -->
             <table width="100%" cellpadding="0" cellspacing="0" style="background:#f9fafb;border-radius:12px;border:1px solid #e5e7eb;margin-bottom:24px;">
               <tr>
                 <td style="padding:14px 16px;border-bottom:1px solid #e5e7eb;">
@@ -87,7 +104,6 @@ export async function sendTransactionEmail(params: TransactionEmailParams): Prom
                 </td>
               </tr>
             </table>
-
             <p style="margin:0;font-size:12px;color:#9ca3af;text-align:center;line-height:1.6;">
               If you did not initiate this transaction, please contact support immediately.<br>
               &copy; ${year} ${settings.brevo_sender_name}. All rights reserved.
@@ -100,21 +116,87 @@ export async function sendTransactionEmail(params: TransactionEmailParams): Prom
 </body>
 </html>`;
 
-  try {
-    await fetch("https://api.brevo.com/v3/smtp/email", {
-      method: "POST",
-      headers: {
-        "api-key": settings.brevo_api_key,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        sender: { name: settings.brevo_sender_name, email: settings.brevo_sender_email },
-        to: [{ email: params.toEmail, name: params.toName }],
-        subject: `Transaction ${statusLabel}: ${params.description}`,
-        htmlContent: html,
-      }),
-    });
-  } catch {
-    // Non-fatal — log but never crash the main flow
-  }
+  await sendEmail(settings, { email: params.toEmail, name: params.toName }, `Transaction ${statusLabel}: ${params.description}`, html);
+}
+
+export async function sendWelcomeEmail(toEmail: string, toName: string): Promise<void> {
+  const settings = await getEmailSettings();
+  if (!settings.brevo_api_key) return;
+
+  const year = new Date().getFullYear();
+  const firstName = toName.split(" ")[0] || toName;
+
+  const html = `<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#f3f4f6;font-family:Inter,Arial,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f3f4f6;padding:40px 0;">
+    <tr><td align="center">
+      <table width="580" cellpadding="0" cellspacing="0" style="background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,.08);">
+        <!-- Header -->
+        <tr>
+          <td style="background:linear-gradient(135deg,#7c3aed,#6d28d9);padding:40px 32px;text-align:center;">
+            <h1 style="margin:0;color:#fff;font-size:26px;font-weight:700;letter-spacing:-.5px;">${settings.brevo_sender_name}</h1>
+            <p style="margin:8px 0 0;color:rgba(255,255,255,.8);font-size:14px;">Welcome to the family! 🎉</p>
+          </td>
+        </tr>
+        <!-- Body -->
+        <tr>
+          <td style="padding:36px 32px;">
+            <p style="margin:0 0 8px;font-size:18px;font-weight:700;color:#111827;">Hi ${firstName}, welcome aboard! 👋</p>
+            <p style="margin:0 0 24px;font-size:14px;color:#6b7280;line-height:1.7;">
+              Your account has been created successfully. You can now enjoy fast, affordable data, airtime, cable TV, and electricity top-ups — all in one place.
+            </p>
+
+            <!-- Feature highlights -->
+            <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:28px;">
+              <tr>
+                <td style="padding:12px 16px;background:#faf5ff;border-radius:10px;border-left:4px solid #7c3aed;margin-bottom:10px;display:block;">
+                  <span style="font-size:20px;">📱</span>
+                  <span style="font-size:14px;font-weight:600;color:#374151;margin-left:8px;">Buy Data</span>
+                  <p style="margin:4px 0 0;font-size:13px;color:#6b7280;">MTN, Airtel, Glo & 9mobile at the best rates</p>
+                </td>
+              </tr>
+              <tr><td style="height:10px;"></td></tr>
+              <tr>
+                <td style="padding:12px 16px;background:#faf5ff;border-radius:10px;border-left:4px solid #7c3aed;">
+                  <span style="font-size:20px;">⚡</span>
+                  <span style="font-size:14px;font-weight:600;color:#374151;margin-left:8px;">Pay Bills</span>
+                  <p style="margin:4px 0 0;font-size:13px;color:#6b7280;">Electricity, Cable TV & more — instant delivery</p>
+                </td>
+              </tr>
+              <tr><td style="height:10px;"></td></tr>
+              <tr>
+                <td style="padding:12px 16px;background:#faf5ff;border-radius:10px;border-left:4px solid #7c3aed;">
+                  <span style="font-size:20px;">💰</span>
+                  <span style="font-size:14px;font-weight:600;color:#374151;margin-left:8px;">Fund Your Wallet</span>
+                  <p style="margin:4px 0 0;font-size:13px;color:#6b7280;">Top up securely via Paystack or Flutterwave</p>
+                </td>
+              </tr>
+            </table>
+
+            <!-- CTA -->
+            <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:28px;">
+              <tr>
+                <td align="center">
+                  <a href="#" style="background:linear-gradient(135deg,#7c3aed,#6d28d9);color:#fff;text-decoration:none;padding:14px 36px;border-radius:8px;font-size:15px;font-weight:600;display:inline-block;">
+                    Go to Dashboard →
+                  </a>
+                </td>
+              </tr>
+            </table>
+
+            <p style="margin:0;font-size:12px;color:#9ca3af;text-align:center;line-height:1.6;">
+              Questions? Contact our support team anytime.<br>
+              &copy; ${year} ${settings.brevo_sender_name}. All rights reserved.
+            </p>
+          </td>
+        </tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`;
+
+  await sendEmail(settings, { email: toEmail, name: toName }, `Welcome to ${settings.brevo_sender_name}! 🎉`, html);
 }
