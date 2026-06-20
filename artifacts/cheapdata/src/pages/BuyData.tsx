@@ -1,128 +1,173 @@
 import { useState } from "react";
 import { useForm } from "react-hook-form";
-import { AppLayout } from "@/components/layout/AppLayout";
-import { PinPromptModal } from "@/components/PinPromptModal";
-import { useGetDataPlans, useGetProfile } from "@/lib/supabase-hooks";
-import { supabase } from "@/lib/supabase";
+import { zodResolver } from "@hookform/resolvers/zod";
+import * as z from "zod";
+import { useGetDataPlansByNetwork, useBuyData, getGetDataPlansByNetworkQueryKey } from "@/lib/supabase-hooks";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Card, CardContent } from "@/components/ui/card";
+import { PinPromptModal } from "@/components/PinPromptModal";
 import { useToast } from "@/hooks/use-toast";
-import { useQueryClient } from "@tanstack/react-query";
-import { formatNaira } from "@/lib/utils";
+import { formatNaira, cn } from "@/lib/utils";
 import { Loader2, Wifi } from "lucide-react";
 
-const NETWORKS = ["MTN", "Airtel", "Glo", "9mobile"];
-
-type FormData = { phone: string; network: string };
+const networks = [
+  { id: "MTN", name: "MTN", color: "bg-yellow-400 hover:bg-yellow-500", text: "text-black" },
+  { id: "AIRTEL", name: "Airtel", color: "bg-red-500 hover:bg-red-600", text: "text-white" },
+  { id: "GLO", name: "Glo", color: "bg-green-500 hover:bg-green-600", text: "text-white" },
+  { id: "9MOBILE", name: "9mobile", color: "bg-green-800 hover:bg-green-900", text: "text-white" },
+];
 
 export default function BuyData() {
-  const [network, setNetwork] = useState("MTN");
-  const [selectedPlan, setSelectedPlan] = useState<any>(null);
-  const [pinOpen, setPinOpen] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const { data: plans, isLoading } = useGetDataPlans(network);
-  const { data: profile } = useGetProfile();
+  const [network, setNetwork] = useState<string>("MTN");
+  const [selectedPlanId, setSelectedPlanId] = useState<string>("");
+  const [phone, setPhone] = useState("");
+  const [isPinModalOpen, setIsPinModalOpen] = useState(false);
   const { toast } = useToast();
-  const queryClient = useQueryClient();
 
-  const { register, handleSubmit, getValues, formState: { errors } } = useForm<FormData>({
-    defaultValues: { network: "MTN", phone: "" },
+  const { data: plans, isLoading: isPlansLoading } = useGetDataPlansByNetwork(network, {
+    query: { queryKey: getGetDataPlansByNetworkQueryKey(network) }
   });
 
-  const onFormSubmit = (plan: any) => {
-    setSelectedPlan(plan);
-    setPinOpen(true);
+  const buyData = useBuyData();
+
+  const selectedPlan = plans?.find(p => p.plan_id === selectedPlanId);
+
+  const handleInitiatePurchase = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!phone || phone.length < 10) {
+      toast({ title: "Error", description: "Please enter a valid phone number", variant: "destructive" });
+      return;
+    }
+    if (!selectedPlanId) {
+      toast({ title: "Error", description: "Please select a data plan", variant: "destructive" });
+      return;
+    }
+    setIsPinModalOpen(true);
   };
 
-  const executePurchase = async () => {
+  const executePurchase = () => {
     if (!selectedPlan) return;
-    const { phone } = getValues();
-    setLoading(true);
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const res = await fetch(`${import.meta.env.BASE_URL}api/services/data`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session?.access_token}` },
-        body: JSON.stringify({ phone, plan_id: selectedPlan.plan_id, network, pin: "verified" }),
-      });
-      const result = await res.json();
-      if (result.success) {
-        toast({ title: "Data Purchased!", description: result.message });
-        queryClient.invalidateQueries({ queryKey: ["profile"] });
-        queryClient.invalidateQueries({ queryKey: ["transactions"] });
-      } else {
-        toast({ title: "Purchase Failed", description: result.message, variant: "destructive" });
+    
+    buyData.mutate(
+      { data: { phone, plan_id: selectedPlan.plan_id, network, pin: "VERIFIED_BY_MODAL" } },
+      {
+        onSuccess: (data) => {
+          if (data.success) {
+            toast({ title: "Success", description: data.message });
+            setPhone("");
+            setSelectedPlanId("");
+          } else {
+            toast({ title: "Purchase Failed", description: data.message, variant: "destructive" });
+          }
+        },
+        onError: (err: any) => {
+          toast({ title: "Error", description: err.message || "An unexpected error occurred", variant: "destructive" });
+        }
       }
-    } catch {
-      toast({ title: "Error", description: "Something went wrong. Please try again.", variant: "destructive" });
-    }
-    setLoading(false);
+    );
   };
 
   return (
-    <AppLayout>
-      <PinPromptModal open={pinOpen} onOpenChange={setPinOpen} onSuccess={executePurchase}
-        amount={selectedPlan?.retail_price} actionTitle="Confirm Data Purchase" />
-      <div className="p-6 max-w-2xl mx-auto space-y-6">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Buy Data</h1>
-          <p className="text-sm text-gray-500 mt-1">
-            Balance: <span className="font-semibold text-primary">{formatNaira(profile?.wallet_balance ?? 0)}</span>
-          </p>
-        </div>
+    <div className="space-y-6 max-w-2xl mx-auto">
+      <div>
+        <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+          <Wifi className="h-6 w-6 text-primary" />
+          Buy Data
+        </h1>
+        <p className="text-gray-500 mt-1">Instant data top-up for all networks</p>
+      </div>
 
-        {/* Network selector */}
-        <div className="flex gap-2 flex-wrap">
-          {NETWORKS.map((n) => (
-            <button key={n} onClick={() => setNetwork(n)}
-              className={`px-4 py-2 rounded-lg text-sm font-medium border transition-colors ${network === n ? "bg-primary text-white border-primary" : "bg-white text-gray-600 border-gray-200 hover:border-primary"}`}>
-              {n}
-            </button>
-          ))}
-        </div>
-
-        {/* Phone number */}
-        <Card>
-          <CardContent className="p-4 space-y-3">
-            <Label htmlFor="phone">Phone Number</Label>
-            <Input id="phone" type="tel" placeholder="e.g. 08012345678"
-              {...register("phone", { required: "Phone number is required", minLength: { value: 10, message: "Enter a valid phone number" } })} />
-            {errors.phone && <p className="text-xs text-red-500">{errors.phone.message}</p>}
-          </CardContent>
-        </Card>
-
-        {/* Plans */}
-        <div>
-          <h3 className="text-sm font-semibold text-gray-500 mb-3">{network} Data Plans</h3>
-          {isLoading ? (
-            <div className="flex justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>
-          ) : plans?.length === 0 ? (
-            <div className="text-center py-12 text-gray-400">
-              <Wifi className="h-12 w-12 mx-auto mb-3 opacity-30" />
-              <p>No plans available for {network}</p>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {plans?.map((plan) => (
-                <button key={plan.id} onClick={handleSubmit(() => onFormSubmit(plan))}
-                  disabled={loading || (profile?.wallet_balance ?? 0) < plan.retail_price}
-                  className="bg-white border border-gray-200 rounded-xl p-4 text-left hover:border-primary hover:shadow-md transition-all disabled:opacity-50 disabled:cursor-not-allowed">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="font-bold text-gray-900">{plan.data_size}</span>
-                    <span className="font-bold text-primary">{formatNaira(plan.retail_price)}</span>
-                  </div>
-                  <p className="text-xs text-gray-400">{plan.validity} validity</p>
-                  {(profile?.wallet_balance ?? 0) < plan.retail_price && (
-                    <p className="text-xs text-red-400 mt-1">Insufficient balance</p>
+      <Card>
+        <CardContent className="pt-6 space-y-6">
+          <div className="space-y-3">
+            <Label className="text-base">Select Network</Label>
+            <div className="grid grid-cols-4 gap-3">
+              {networks.map((net) => (
+                <button
+                  key={net.id}
+                  type="button"
+                  onClick={() => { setNetwork(net.id); setSelectedPlanId(""); }}
+                  className={cn(
+                    "h-16 rounded-xl font-bold text-sm transition-all border-2",
+                    network === net.id 
+                      ? `${net.color} ${net.text} border-transparent scale-[1.02] shadow-md` 
+                      : "bg-white text-gray-700 border-gray-200 hover:border-gray-300"
                   )}
+                >
+                  {net.name}
                 </button>
               ))}
             </div>
-          )}
-        </div>
-      </div>
-    </AppLayout>
+          </div>
+
+          <form onSubmit={handleInitiatePurchase} className="space-y-6">
+            <div className="space-y-2">
+              <Label htmlFor="phone" className="text-base">Phone Number</Label>
+              <Input
+                id="phone"
+                type="tel"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value.replace(/[^0-9]/g, ''))}
+                placeholder="080XXXXXXXX"
+                className="h-12 text-lg"
+                maxLength={11}
+              />
+            </div>
+
+            <div className="space-y-3">
+              <Label className="text-base">Select Plan</Label>
+              {isPlansLoading ? (
+                <div className="grid grid-cols-2 gap-3">
+                  {[1, 2, 3, 4].map(i => <div key={i} className="h-20 bg-gray-100 animate-pulse rounded-xl" />)}
+                </div>
+              ) : plans && plans.length > 0 ? (
+                <div className="grid grid-cols-2 gap-3 max-h-[400px] overflow-y-auto pr-2 pb-2">
+                  {plans.map((plan) => (
+                    <button
+                      key={plan.plan_id}
+                      type="button"
+                      onClick={() => setSelectedPlanId(plan.plan_id)}
+                      className={cn(
+                        "p-4 rounded-xl border-2 text-left transition-all",
+                        selectedPlanId === plan.plan_id
+                          ? "border-primary bg-red-50"
+                          : "border-gray-200 bg-white hover:border-primary/50"
+                      )}
+                    >
+                      <div className="font-bold text-lg text-gray-900">{plan.plan_name}</div>
+                      <div className="text-primary font-bold mt-1">{formatNaira(plan.retail_price)}</div>
+                      {plan.validity && <div className="text-xs text-gray-500 mt-1">{plan.validity}</div>}
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <div className="p-8 text-center bg-gray-50 rounded-xl border border-dashed border-gray-200">
+                  <p className="text-gray-500">No plans available for {network}</p>
+                </div>
+              )}
+            </div>
+
+            <Button 
+              type="submit" 
+              className="w-full h-14 text-lg" 
+              disabled={!phone || !selectedPlanId || buyData.isPending}
+            >
+              {buyData.isPending ? <Loader2 className="h-5 w-5 animate-spin mr-2" /> : null}
+              {buyData.isPending ? "Processing..." : selectedPlan ? `Pay ${formatNaira(selectedPlan.retail_price)}` : "Proceed to Pay"}
+            </Button>
+          </form>
+        </CardContent>
+      </Card>
+
+      <PinPromptModal 
+        open={isPinModalOpen} 
+        onOpenChange={setIsPinModalOpen}
+        onSuccess={executePurchase}
+        amount={selectedPlan?.retail_price}
+        actionTitle="Confirm Data Purchase"
+      />
+    </div>
   );
 }
