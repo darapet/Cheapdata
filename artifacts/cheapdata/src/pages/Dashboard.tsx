@@ -1,111 +1,167 @@
+import { useState } from "react";
 import { Link } from "wouter";
-import { Wifi, Phone, Tv, Zap, Wallet, History, TrendingUp, ArrowUpRight } from "lucide-react";
-import { AppLayout } from "@/components/layout/AppLayout";
-import { SetupPinModal } from "@/components/SetupPinModal";
-import { useGetProfile, useGetTransactions } from "@/lib/supabase-hooks";
-import { formatNaira } from "@/lib/utils";
+import { useGetProfile, useGetWalletTransactions, getGetProfileQueryKey } from "@/lib/supabase-hooks";
 import { Card, CardContent } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
+import { SetupPinModal } from "@/components/SetupPinModal";
+import { formatNaira, cn } from "@/lib/utils";
+import { Eye, EyeOff, Plus, Wifi, Phone, Tv, Zap, ArrowUpRight, ArrowDownRight, Clock } from "lucide-react";
 import { format } from "date-fns";
 
-const services = [
-  { name: "Buy Data", href: "/buy-data", icon: Wifi, color: "bg-blue-500", desc: "Mobile internet bundles" },
-  { name: "Buy Airtime", href: "/buy-airtime", icon: Phone, color: "bg-green-500", desc: "Recharge any network" },
-  { name: "Cable TV", href: "/cable-tv", icon: Tv, color: "bg-orange-500", desc: "DStv, GOtv, StarTimes" },
-  { name: "Electricity", href: "/electricity", icon: Zap, color: "bg-yellow-500", desc: "Buy power tokens" },
-  { name: "Fund Wallet", href: "/fund-wallet", icon: Wallet, color: "bg-primary", desc: "Top up your balance" },
-  { name: "Transactions", href: "/transactions", icon: History, color: "bg-purple-500", desc: "View history" },
-];
-
 export default function Dashboard() {
-  const { data: profile, isLoading } = useGetProfile();
-  const { data: transactions } = useGetTransactions();
-  const needsPin = !isLoading && profile && !profile.transaction_pin;
-  const recent = transactions?.slice(0, 5) ?? [];
+  const [showBalance, setShowBalance] = useState(true);
+  
+  const { data: profile, isLoading: isProfileLoading } = useGetProfile({
+    query: { queryKey: getGetProfileQueryKey() }
+  });
+  
+  const { data: transactions, isLoading: isTransactionsLoading } = useGetWalletTransactions();
+
+  if (isProfileLoading) {
+    return (
+      <div className="space-y-6">
+        <Skeleton className="h-48 w-full rounded-2xl" />
+        <div className="grid grid-cols-4 gap-4">
+          {[1, 2, 3, 4].map(i => <Skeleton key={i} className="h-24 w-full rounded-xl" />)}
+        </div>
+        <Skeleton className="h-64 w-full rounded-xl" />
+      </div>
+    );
+  }
 
   return (
-    <AppLayout>
-      <SetupPinModal open={!!needsPin} />
-      <div className="p-6 max-w-4xl mx-auto space-y-6">
-        {/* Wallet card */}
-        <div className="bg-gradient-to-br from-primary to-violet-700 rounded-2xl p-6 text-white shadow-lg">
-          <div className="flex items-start justify-between mb-4">
-            <div>
-              <p className="text-sm text-white/70">Wallet Balance</p>
-              <h2 className="text-3xl font-bold mt-1">
-                {isLoading ? "—" : formatNaira(profile?.wallet_balance ?? 0)}
+    <div className="space-y-8 pb-10">
+      {/* PIN Setup Check */}
+      {profile && !profile.is_pin_set && <SetupPinModal open={true} />}
+
+      <div className="flex justify-between items-end">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Hi, {profile?.full_name?.split(' ')[0] || 'User'} 👋</h1>
+          <p className="text-gray-500 text-sm">Welcome back to CheapDataHub</p>
+        </div>
+      </div>
+
+      {/* Wallet Card */}
+      <Card className="bg-primary text-white overflow-hidden relative border-0 shadow-lg shadow-primary/20">
+        <div className="absolute -right-10 -top-24 w-64 h-64 bg-white/10 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute -left-10 -bottom-24 w-48 h-48 bg-black/10 rounded-full blur-2xl pointer-events-none" />
+        
+        <CardContent className="p-8 relative z-10">
+          <div className="flex justify-between items-start">
+            <div className="space-y-1">
+              <p className="text-white/80 font-medium flex items-center gap-2">
+                Available Balance
+                <button onClick={() => setShowBalance(!showBalance)} className="hover:bg-white/10 p-1 rounded-full transition-colors">
+                  {showBalance ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </p>
+              <h2 className="text-4xl font-bold tracking-tight">
+                {showBalance ? formatNaira(profile?.wallet_balance || 0) : '••••••'}
               </h2>
             </div>
-            <div className="bg-white/20 rounded-xl p-2">
-              <TrendingUp className="h-6 w-6" />
-            </div>
+            <Link href="/fund-wallet">
+              <a className="bg-white text-primary hover:bg-gray-50 font-medium px-4 py-2.5 rounded-lg flex items-center gap-2 transition-colors shadow-sm">
+                <Plus className="h-4 w-4" />
+                Fund
+              </a>
+            </Link>
           </div>
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center text-sm font-bold">
-              {profile?.full_name?.[0]?.toUpperCase() ?? "U"}
-            </div>
-            <div>
-              <p className="text-sm font-medium">{profile?.full_name ?? "Loading..."}</p>
-              <p className="text-xs text-white/60">{profile?.email}</p>
-            </div>
-          </div>
-        </div>
+        </CardContent>
+      </Card>
 
-        {/* Services grid */}
-        <div>
-          <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">Services</h3>
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-            {services.map((s) => (
-              <Link key={s.name} href={s.href}>
-                <a className="bg-white rounded-xl p-4 border border-gray-100 hover:shadow-md hover:border-primary/20 transition-all group">
-                  <div className={`${s.color} rounded-xl w-10 h-10 flex items-center justify-center mb-3 group-hover:scale-110 transition-transform`}>
-                    <s.icon className="h-5 w-5 text-white" />
-                  </div>
-                  <p className="font-semibold text-gray-800 text-sm">{s.name}</p>
-                  <p className="text-xs text-gray-400 mt-0.5">{s.desc}</p>
-                </a>
-              </Link>
-            ))}
-          </div>
+      {/* Quick Actions */}
+      <div>
+        <h3 className="text-lg font-bold mb-4 text-gray-900">Quick Actions</h3>
+        <div className="grid grid-cols-4 gap-4">
+          <ActionCard icon={Wifi} label="Buy Data" href="/buy-data" color="bg-blue-50 text-blue-600" />
+          <ActionCard icon={Phone} label="Airtime" href="/buy-airtime" color="bg-green-50 text-green-600" />
+          <ActionCard icon={Tv} label="Cable TV" href="/cable-tv" color="bg-purple-50 text-purple-600" />
+          <ActionCard icon={Zap} label="Electricity" href="/electricity" color="bg-orange-50 text-orange-600" />
         </div>
-
-        {/* Recent transactions */}
-        {recent.length > 0 && (
-          <div>
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wide">Recent Transactions</h3>
-              <Link href="/transactions">
-                <a className="text-xs text-primary font-medium flex items-center gap-1">View all <ArrowUpRight className="h-3 w-3" /></a>
-              </Link>
-            </div>
-            <Card>
-              <CardContent className="p-0">
-                {recent.map((tx, i) => (
-                  <div key={tx.id} className={`flex items-center justify-between px-4 py-3 ${i < recent.length - 1 ? "border-b border-gray-100" : ""}`}>
-                    <div className="flex items-center gap-3">
-                      <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ${tx.type === "credit" ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}`}>
-                        {tx.type === "credit" ? "+" : "-"}
-                      </div>
-                      <div>
-                        <p className="text-sm font-medium text-gray-800">{tx.description || tx.type}</p>
-                        <p className="text-xs text-gray-400">{format(new Date(tx.created_at), "MMM d, h:mm a")}</p>
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <p className={`text-sm font-semibold ${tx.type === "credit" ? "text-green-600" : "text-gray-800"}`}>
-                        {tx.type === "credit" ? "+" : "-"}{formatNaira(tx.amount)}
-                      </p>
-                      <Badge variant={tx.status === "completed" ? "default" : tx.status === "pending" ? "secondary" : "destructive"} className="text-xs">
-                        {tx.status}
-                      </Badge>
-                    </div>
-                  </div>
-                ))}
-              </CardContent>
-            </Card>
-          </div>
-        )}
       </div>
-    </AppLayout>
+
+      {/* Recent Transactions */}
+      <div>
+        <div className="flex justify-between items-center mb-4">
+          <h3 className="text-lg font-bold text-gray-900">Recent Transactions</h3>
+          <Link href="/transactions">
+            <a className="text-sm font-medium text-primary hover:underline">View All</a>
+          </Link>
+        </div>
+        
+        <Card>
+          <CardContent className="p-0 divide-y divide-gray-100">
+            {isTransactionsLoading ? (
+              <div className="p-6 text-center text-gray-500">Loading transactions...</div>
+            ) : transactions && transactions.length > 0 ? (
+              transactions.slice(0, 5).map((tx) => (
+                <div key={tx.id} className="p-4 flex items-center justify-between hover:bg-gray-50 transition-colors">
+                  <div className="flex items-center gap-4">
+                    <div className={cn(
+                      "w-10 h-10 rounded-full flex items-center justify-center",
+                      tx.type === 'funding' ? "bg-green-100 text-green-600" : "bg-red-100 text-red-600"
+                    )}>
+                      {tx.type === 'funding' ? <ArrowDownRight className="h-5 w-5" /> : <ArrowUpRight className="h-5 w-5" />}
+                    </div>
+                    <div>
+                      <p className="font-medium text-gray-900">{tx.description}</p>
+                      <div className="flex items-center text-xs text-gray-500 gap-1 mt-0.5">
+                        <Clock className="h-3 w-3" />
+                        {format(new Date(tx.created_at), 'MMM d, yyyy h:mm a')}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <p className={cn(
+                      "font-bold",
+                      tx.type === 'funding' ? "text-green-600" : "text-gray-900"
+                    )}>
+                      {tx.type === 'funding' ? '+' : '-'}{formatNaira(tx.amount)}
+                    </p>
+                    <span className={cn(
+                      "text-xs px-2 py-0.5 rounded-full font-medium inline-block mt-1",
+                      tx.status === 'successful' ? "bg-green-100 text-green-700" :
+                      tx.status === 'pending' ? "bg-yellow-100 text-yellow-700" :
+                      "bg-red-100 text-red-700"
+                    )}>
+                      {tx.status}
+                    </span>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <div className="p-8 text-center text-gray-500 flex flex-col items-center">
+                <History className="h-8 w-8 mb-2 text-gray-300" />
+                <p>No transactions yet</p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+function ActionCard({ icon: Icon, label, href, color }: { icon: any, label: string, href: string, color: string }) {
+  return (
+    <Link href={href}>
+      <a className="flex flex-col items-center p-4 rounded-2xl bg-white border border-gray-100 hover:border-gray-300 hover:shadow-sm transition-all text-center gap-3">
+        <div className={cn("w-12 h-12 rounded-full flex items-center justify-center", color)}>
+          <Icon className="h-6 w-6" />
+        </div>
+        <span className="text-sm font-medium text-gray-700">{label}</span>
+      </a>
+    </Link>
+  );
+}
+
+function History({ className }: { className?: string }) {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+      <path d="M3 3v5h5" />
+      <path d="M12 7v5l4 2" />
+    </svg>
   );
 }
