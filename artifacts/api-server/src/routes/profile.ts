@@ -1,7 +1,8 @@
 import { Router } from "express";
 import { supabaseAdmin } from "../lib/supabase.js";
 import { requireAuth, type AuthRequest } from "../middlewares/auth.js";
-import type { Response } from "express";
+import { sendWelcomeEmail } from "../lib/email.js";
+import type { Response, Request } from "express";
 import crypto from "crypto";
 
 const router = Router();
@@ -99,6 +100,26 @@ router.post("/profile/pin/verify", requireAuth, async (req: AuthRequest, res: Re
   } catch (err) {
     req.log.error({ err }, "Error verifying PIN");
     res.status(500).json({ error: "Failed to verify PIN" });
+  }
+});
+
+// POST /api/auth/welcome — send welcome email after signup (no auth required)
+router.post("/auth/welcome", async (req: Request, res: Response) => {
+  try {
+    const { email, full_name } = req.body as { email?: string; full_name?: string };
+
+    if (!email || !full_name) {
+      res.status(400).json({ error: "email and full_name are required" });
+      return;
+    }
+
+    // Non-blocking — fire and forget
+    void sendWelcomeEmail(email, full_name);
+
+    res.json({ success: true });
+  } catch (err) {
+    // Never fail registration flow because of a welcome email issue
+    res.json({ success: true });
   }
 });
 
