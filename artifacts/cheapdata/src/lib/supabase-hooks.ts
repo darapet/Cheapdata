@@ -188,17 +188,19 @@ export function useGetPublicSettings() {
   })
 }
 
-// ── Admin: Settings ────────────────────────────────────────────────────────────
+// ── Admin: Settings (via backend API to bypass RLS on secret keys) ─────────────
+async function authHeaders() {
+  const { data } = await supabase.auth.getSession()
+  return { 'Content-Type': 'application/json', Authorization: `Bearer ${data.session?.access_token ?? ''}` }
+}
+
 export function useAdminGetSettings() {
   return useQuery({
     queryKey: getGetSystemSettingsQueryKey(),
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('system_settings')
-        .select('*')
-        .maybeSingle()
-      if (error) throw error
-      return data
+      const res = await fetch('/api/admin/settings', { headers: await authHeaders() })
+      if (!res.ok) throw new Error(await res.text())
+      return res.json()
     },
   })
 }
@@ -206,30 +208,12 @@ export function useAdminGetSettings() {
 export function useAdminUpdateSettings() {
   return useMutation({
     mutationFn: async ({ data }: { data: Record<string, string> }) => {
-      const payload: Record<string, string> = {
-        paystack_public_key: data.paystack_public_key ?? '',
-        flutterwave_public_key: data.flutterwave_public_key ?? '',
-        cheapdatahub_funding_account: data.cheapdatahub_funding_account ?? '',
-        cheapdatahub_base_url: data.cheapdatahub_base_url ?? '',
-        brevo_sender_email: data.brevo_sender_email ?? '',
-        brevo_sender_name: data.brevo_sender_name ?? '',
-        active_payment_gateway: data.active_payment_gateway ?? 'paystack',
-        admin_email: data.admin_email ?? '',
-      }
-      // Only update secret keys if the user typed something (non-empty)
-      if (data.paystack_secret_key) payload.paystack_secret_key = data.paystack_secret_key
-      if (data.flutterwave_secret_key) payload.flutterwave_secret_key = data.flutterwave_secret_key
-      if (data.cheapdatahub_api_key) payload.cheapdatahub_api_key = data.cheapdatahub_api_key
-      if (data.brevo_api_key) payload.brevo_api_key = data.brevo_api_key
-
-      const { data: existing } = await supabase.from('system_settings').select('id').maybeSingle()
-      let error
-      if (existing) {
-        ;({ error } = await supabase.from('system_settings').update(payload).eq('id', existing.id))
-      } else {
-        ;({ error } = await supabase.from('system_settings').insert(payload))
-      }
-      if (error) throw error
+      const res = await fetch('/api/admin/settings', {
+        method: 'POST',
+        headers: await authHeaders(),
+        body: JSON.stringify(data),
+      })
+      if (!res.ok) throw new Error(await res.text())
     },
   })
 }

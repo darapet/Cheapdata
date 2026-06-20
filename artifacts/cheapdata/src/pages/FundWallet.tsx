@@ -10,6 +10,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
 import { formatNaira } from "@/lib/utils";
 import { Loader2, CreditCard, AlertCircle } from "lucide-react";
+import { supabase } from "@/lib/supabase";
 
 declare global {
   interface Window {
@@ -21,20 +22,30 @@ declare global {
 const QUICK_AMOUNTS = [500, 1000, 2000, 5000, 10000, 20000];
 const FEE = 50;
 
+async function verifyPayment(reference: string, transaction_id: string | number | undefined, gateway: "paystack" | "flutterwave") {
+  const { data } = await supabase.auth.getSession();
+  const token = data.session?.access_token ?? "";
+  const res = await fetch("/api/wallet/verify-payment", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ reference, transaction_id, gateway }),
+  });
+  return res.json() as Promise<{ success: boolean; new_balance?: number; message?: string }>;
+}
+
 export default function FundWallet() {
   const { data: profile } = useGetProfile();
   const { data: settings } = useGetPublicSettings();
   const initialize = useInitializeFunding();
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const [verifying, setVerifying] = useState(false);
 
-  const { register, handleSubmit, setValue, watch, formState: { errors } } = useForm<{ amount: number; gateway: "paystack" | "flutterwave" }>({
-    defaultValues: { amount: 1000, gateway: "paystack" },
+  const { register, handleSubmit, setValue, watch, formState: { errors } } = useForm<{ amount: number }>({
+    defaultValues: { amount: 1000 },
   });
   const amount = watch("amount");
-  const gateway = watch("gateway");
 
-  // Load payment SDK
   useEffect(() => {
     const active = settings?.active_payment_gateway ?? "paystack";
     if (active === "paystack" && !document.getElementById("paystack-sdk")) {
@@ -47,9 +58,15 @@ export default function FundWallet() {
     }
   }, [settings]);
 
-  const onSubmit = async (data: { amount: number; gateway: "paystack" | "flutterwave" }) => {
+  const handleVerified = (newBalance?: number) => {
+    toast({ title: "Wallet Funded!", description: newBalance !== undefined ? `New balance: ${formatNaira(newBalance)}` : "Your wallet has been credited." });
+    queryClient.invalidateQueries({ queryKey: ["profile"] });
+    queryClient.invalidateQueries({ queryKey: ["transactions"] });
+  };
+
+  const onSubmit = async (formData: { amount: number }) => {
     const activeGateway = (settings?.active_payment_gateway as "paystack" | "flutterwave") ?? "paystack";
-    initialize.mutate({ data: { amount: Number(data.amount), gateway: activeGateway } }, {
+    initialize.mutate({ data: { amount: Number(formData.amount), gateway: activeGateway } }, {
       onSuccess: (result) => {
         if (result.gateway === "paystack") {
           const handler = window.PaystackPop.setup({
@@ -58,14 +75,20 @@ export default function FundWallet() {
             amount: result.amount,
             ref: result.reference,
             currency: "NGN",
-            onSuccess: () => {
-              toast({ title: "Payment Received!", description: "Your wallet will be credited shortly." });
-              queryClient.invalidateQueries({ queryKey: ["profile"] });
-              queryClient.invalidateQueries({ queryKey: ["transactions"] });
+            onSuccess: async () => {
+              setVerifying(true);
+              try {
+                const r = await verifyPayment(result.reference, undefined, "paystack");
+                if (r.success) handleVerified(r.new_balance);
+                else toast({ title: "Verification failed", description: r.message, variant: "destructive" });
+              } finally {
+                setVerifying(false);
+              }
             },
             onClose: () => toast({ title: "Payment Cancelled", variant: "destructive" }),
           });
           handler.openIframe();
+
         } else {
           window.FlutterwaveCheckout({
             public_key: result.public_key,
@@ -73,17 +96,29 @@ export default function FundWallet() {
             amount: result.amount,
             currency: "NGN",
             customer: { email: profile?.email, name: profile?.full_name, phonenumber: profile?.phone },
-            customizations: { title: "CheapDataHub", description: "Wallet Funding" },
-            callback: () => {
-              toast({ title: "Payment Received!", description: "Your wallet will be credited shortly." });
-              queryClient.invalidateQueries({ queryKey: ["profile"] });
-              queryClient.invalidateQueries({ queryKey: ["transactions"] });
+            customizations: { title: "CheapDataHub", description: "Wallet Funding", logo: "" },
+            callback: async (response: { transaction_id: number; tx_ref: string; status: string }) => {
+              if (response.status !== "successful") {
+                toast({ title: "Payment Failed", description: "Transaction was not successful.", variant: "destructive" });
+                return;
+              }
+              setVerifying(true);
+              try {
+                const r = await verifyPayment(result.reference, response.transaction_id, "flutterwave");
+                if (r.success) handleVerified(r.new_balance);
+                else toast({ title: "Verification failed", description: r.message, variant: "destructive" });
+              } finally {
+                setVerifying(false);
+              }
             },
             onclose: () => toast({ title: "Payment Cancelled", variant: "destructive" }),
           });
         }
       },
-      onError: (err: any) => toast({ title: "Error", description: err.message, variant: "destructive" }),
+      onError: (err: unknown) => {
+        const message = err instanceof Error ? err.message : "Something went wrong";
+        toast({ title: "Error", description: message, variant: "destructive" });
+      },
     });
   };
 
@@ -101,6 +136,13 @@ export default function FundWallet() {
           <AlertCircle className="h-4 w-4 text-amber-600 flex-shrink-0 mt-0.5" />
           <p className="text-xs text-amber-700">A processing fee of ₦{FEE} applies to each funding transaction.</p>
         </div>
+
+        {verifying && (
+          <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 flex items-center gap-2">
+            <Loader2 className="h-4 w-4 text-blue-600 animate-spin" />
+            <p className="text-sm text-blue-700 font-medium">Verifying payment and crediting wallet…</p>
+          </div>
+        )}
 
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           <Card>
@@ -127,13 +169,18 @@ export default function FundWallet() {
                   <div className="flex justify-between font-bold text-gray-900 border-t pt-1 mt-1"><span>Total charge</span><span>{formatNaira(Number(amount) + FEE)}</span></div>
                 </div>
               )}
+
+              <p className="text-xs text-gray-400">
+                Payment via: <span className="font-medium capitalize">{settings?.active_payment_gateway ?? "paystack"}</span>
+              </p>
             </CardContent>
           </Card>
 
-          <Button type="submit" className="w-full h-12 text-base font-semibold" disabled={initialize.isPending}>
-            {initialize.isPending ? <Loader2 className="h-5 w-5 animate-spin" /> : (
-              <><CreditCard className="h-5 w-5 mr-2" /> Pay {Number(amount) > 0 ? formatNaira(Number(amount) + FEE) : ""}</>
-            )}
+          <Button type="submit" className="w-full h-12 text-base font-semibold" disabled={initialize.isPending || verifying}>
+            {initialize.isPending || verifying
+              ? <Loader2 className="h-5 w-5 animate-spin" />
+              : <><CreditCard className="h-5 w-5 mr-2" /> Pay {Number(amount) > 0 ? formatNaira(Number(amount) + FEE) : ""}</>
+            }
           </Button>
         </form>
       </div>
