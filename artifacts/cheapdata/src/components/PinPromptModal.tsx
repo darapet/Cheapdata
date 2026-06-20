@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { useVerifyPin } from "@workspace/api-client-react";
+import { useVerifyPin } from "@/lib/supabase-hooks";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2 } from "lucide-react";
 
