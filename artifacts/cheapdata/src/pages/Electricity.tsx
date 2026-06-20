@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useBuyElectricity } from "@workspace/api-client-react";
+import { useBuyElectricity } from "@/lib/supabase-hooks";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
