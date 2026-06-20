@@ -136,4 +136,32 @@ router.post("/admin/test-brevo", requireAuth, async (req: AuthRequest, res: Resp
   }
 });
 
+// POST /api/admin/test-flutterwave — verify the saved Flutterwave secret key is valid
+router.post("/admin/test-flutterwave", requireAuth, async (req: AuthRequest, res: Response) => {
+  if (!(await isAdmin(req.userId!))) {
+    res.status(403).json({ error: "Forbidden" }); return;
+  }
+  const { data: settings } = await supabaseAdmin
+    .from("system_settings")
+    .select("flutterwave_secret_key")
+    .maybeSingle();
+  const key = settings?.flutterwave_secret_key?.trim();
+  if (!key) {
+    res.status(400).json({ error: "No Flutterwave secret key saved yet. Save your key first." }); return;
+  }
+  try {
+    const r = await fetch("https://api.flutterwave.com/v3/banks/NG", {
+      headers: { Authorization: `Bearer ${key}` },
+    });
+    const body = await r.json() as { status: string; message: string };
+    if (body.status === "success") {
+      res.json({ ok: true, message: "Flutterwave key is valid ✓" });
+    } else {
+      res.status(400).json({ error: `Flutterwave rejected the key: ${body.message}` });
+    }
+  } catch (e: any) {
+    res.status(500).json({ error: `Could not reach Flutterwave: ${e.message}` });
+  }
+});
+
 export default router;
