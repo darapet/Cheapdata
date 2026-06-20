@@ -38,9 +38,17 @@ export default function Register() {
       },
     });
     setLoading(false);
+
     if (error) {
       toast({ title: "Registration failed", description: error.message, variant: "destructive" });
     } else {
+      // Send welcome email (fire-and-forget — never blocks or fails signup)
+      void fetch(`${import.meta.env.BASE_URL}api/auth/welcome`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: data.email, full_name: data.full_name }),
+      }).catch(() => {/* ignore */});
+
       toast({ title: "Account created!", description: "Welcome to CheapDataHub." });
       setLocation("/dashboard");
     }
