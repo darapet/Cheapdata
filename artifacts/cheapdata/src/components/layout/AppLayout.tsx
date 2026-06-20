@@ -1,5 +1,5 @@
 import { Link, useLocation } from "wouter";
-import { Home, Wifi, Phone, Tv, Zap, Wallet, History, User, LogOut, Loader2 } from "lucide-react";
+import { Home, Wifi, Phone, Tv, Zap, Wallet, History, User, LogOut } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
@@ -27,11 +27,8 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex h-screen w-full bg-gray-50 flex-col md:flex-row">
       <div className="w-full md:w-64 bg-white border-r border-gray-200 flex-shrink-0 flex flex-col hidden md:flex">
-        <div className="p-6 flex items-center gap-2">
-          <div className="h-8 w-8 rounded bg-primary flex items-center justify-center">
-            <Zap className="h-5 w-5 text-white" />
-          </div>
-          <span className="text-xl font-bold tracking-tight text-gray-900">CheapDataHub</span>
+        <div className="p-5 flex items-center">
+          <img src={`${import.meta.env.BASE_URL}logo.png`} alt="CheapDataHub" className="h-10 w-auto" />
         </div>
         <nav className="flex-1 px-4 space-y-1 overflow-y-auto">
           {navigation.map((item) => {
@@ -71,15 +68,10 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           </button>
         </div>
       </div>
-      
+
       {/* Mobile nav header */}
       <div className="md:hidden bg-white border-b border-gray-200 p-4 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <div className="h-8 w-8 rounded bg-primary flex items-center justify-center">
-            <Zap className="h-5 w-5 text-white" />
-          </div>
-          <span className="text-lg font-bold tracking-tight text-gray-900">CheapDataHub</span>
-        </div>
+        <img src={`${import.meta.env.BASE_URL}logo.png`} alt="CheapDataHub" className="h-8 w-auto" />
         <button onClick={handleLogout} className="p-2 text-gray-600">
           <LogOut className="h-5 w-5" />
         </button>
@@ -90,7 +82,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           {children}
         </div>
       </main>
-      
+
       {/* Mobile bottom nav */}
       <div className="md:hidden bg-white border-t border-gray-200 p-2 flex items-center justify-around">
         {navigation.slice(0, 5).map((item) => (
