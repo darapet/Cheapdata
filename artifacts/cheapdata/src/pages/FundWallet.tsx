@@ -1,53 +1,115 @@
 import { useState } from "react";
-import { useInitializeWalletFunding, useGetProfile, getGetProfileQueryKey } from "@/lib/supabase-hooks";
+import { useGetProfile, getGetProfileQueryKey } from "@/lib/supabase-hooks";
+import { supabase } from "@/lib/supabase";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { formatNaira } from "@/lib/utils";
-import { Loader2, Wallet, Copy, CheckCircle2 } from "lucide-react";
+import { Loader2, Wallet, CheckCircle2 } from "lucide-react";
+
+declare global {
+  interface Window { PaystackPop: any; }
+}
+
+function loadPaystackScript(): Promise<void> {
+  return new Promise((resolve) => {
+    if (window.PaystackPop) return resolve();
+    const script = document.createElement('script');
+    script.src = 'https://js.paystack.co/v1/inline.js';
+    script.onload = () => resolve();
+    document.body.appendChild(script);
+  });
+}
 
 export default function FundWallet() {
   const [amount, setAmount] = useState("");
-  const [fundingData, setFundingData] = useState<any>(null);
-  const [copied, setCopied] = useState(false);
+  const [isPaying, setIsPaying] = useState(false);
+  const [success, setSuccess] = useState(false);
   const { toast } = useToast();
 
-  const { data: profile } = useGetProfile({
+  const { data: profile, refetch: refetchProfile } = useGetProfile({
     query: { queryKey: getGetProfileQueryKey() }
   });
 
-  const initFund = useInitializeWalletFunding();
+  const fee = 50;
+  const totalAmount = Number(amount) + fee;
 
-  const handleInitiateFunding = (e: React.FormEvent) => {
+  const handlePay = async (e: React.FormEvent) => {
     e.preventDefault();
     const numAmount = Number(amount);
     if (!amount || numAmount < 100) {
-      toast({ title: "Error", description: "Minimum funding amount is ₦100", variant: "destructive" });
+      toast({ title: "Error", description: "Minimum funding amount is N100", variant: "destructive" });
       return;
     }
+    setIsPaying(true);
+    try {
+      const { data: settings } = await supabase
+        .from('system_settings')
+        .select('paystack_public_key')
+        .maybeSingle();
 
-    initFund.mutate(
-      { data: { amount: numAmount } },
-      {
-        onSuccess: (data) => {
-          setFundingData(data);
-          toast({ title: "Funding Initiated", description: "Please follow the instructions to complete transfer." });
-        },
-        onError: (err: any) => {
-          toast({ title: "Error", description: err.message || "Failed to initialize funding", variant: "destructive" });
-        }
+      const publicKey = settings?.paystack_public_key;
+      if (!publicKey) {
+        toast({ title: "Payment gateway not configured", description: "Please contact the admin to set up payment keys.", variant: "destructive" });
+        setIsPaying(false);
+        return;
       }
-    );
+
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Not authenticated');
+
+      const reference = `CDH-${Date.now()}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
+      await supabase.from('wallet_fundings').insert({
+        user_id: user.id,
+        type: 'funding',
+        description: `Wallet Funding N${numAmount.toLocaleString()}`,
+        amount: numAmount,
+        status: 'pending',
+        reference,
+      });
+
+      await loadPaystackScript();
+
+      const handler = window.PaystackPop.setup({
+        key: publicKey,
+        email: profile?.email || user.email,
+        amount: totalAmount * 100,
+        ref: reference,
+        currency: 'NGN',
+        onSuccess: () => {
+          setIsPaying(false);
+          setSuccess(true);
+          toast({ title: "Payment Received!", description: "Your wallet will be credited within a few seconds." });
+          setTimeout(() => refetchProfile(), 3000);
+        },
+        onCancel: () => {
+          setIsPaying(false);
+          toast({ title: "Cancelled", description: "Payment was cancelled.", variant: "destructive" });
+        },
+      });
+      handler.openIframe();
+    } catch (err: any) {
+      setIsPaying(false);
+      toast({ title: "Error", description: err.message || "Failed to initialize payment", variant: "destructive" });
+    }
   };
 
-  const copyToClipboard = (text: string) => {
-    navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-    toast({ title: "Copied!", description: "Account number copied to clipboard." });
-  };
+  if (success) {
+    return (
+      <div className="max-w-md mx-auto text-center space-y-6 py-12">
+        <CheckCircle2 className="h-16 w-16 text-green-500 mx-auto" />
+        <h2 className="text-2xl font-bold text-gray-900">Payment Submitted!</h2>
+        <p className="text-gray-500">Your wallet is being credited automatically. It may take a few seconds to reflect.</p>
+        <div className="bg-gray-50 rounded-xl p-4">
+          <p className="text-sm text-gray-500">Current Balance</p>
+          <p className="text-3xl font-bold text-gray-900">{formatNaira(profile?.wallet_balance || 0)}</p>
+        </div>
+        <Button onClick={() => { setSuccess(false); setAmount(""); }} className="w-full h-12">Fund Wallet Again</Button>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 max-w-2xl mx-auto">
@@ -56,9 +118,8 @@ export default function FundWallet() {
           <Wallet className="h-6 w-6 text-primary" />
           Fund Wallet
         </h1>
-        <p className="text-gray-500 mt-1">Add money to your CheapDataHub wallet via Bank Transfer</p>
+        <p className="text-gray-500 mt-1">Add money to your CheapDataHub wallet securely via Paystack</p>
       </div>
-
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <Card>
           <CardContent className="pt-6">
@@ -66,10 +127,9 @@ export default function FundWallet() {
               <p className="text-sm text-gray-500 mb-1">Current Balance</p>
               <p className="text-2xl font-bold text-gray-900">{formatNaira(profile?.wallet_balance || 0)}</p>
             </div>
-
-            <form onSubmit={handleInitiateFunding} className="space-y-6">
+            <form onSubmit={handlePay} className="space-y-6">
               <div className="space-y-2">
-                <Label htmlFor="amount" className="text-base">Amount to Fund (₦)</Label>
+                <Label htmlFor="amount" className="text-base">Amount to Fund (N)</Label>
                 <Input
                   id="amount"
                   type="text"
@@ -79,82 +139,44 @@ export default function FundWallet() {
                   className="h-12 text-lg font-bold"
                 />
               </div>
-
               {amount && Number(amount) > 0 && (
-                <div className="bg-red-50 text-red-900 p-4 rounded-xl text-sm space-y-2">
-                  <div className="flex justify-between">
-                    <span>Base Amount:</span>
-                    <span className="font-medium">{formatNaira(Number(amount))}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Processing Fee:</span>
-                    <span className="font-medium">₦50.00</span>
-                  </div>
-                  <div className="border-t border-red-200 pt-2 flex justify-between font-bold text-base">
-                    <span>Total Required:</span>
-                    <span>{formatNaira(Number(amount) + 50)}</span>
+                <div className="bg-blue-50 text-blue-900 p-4 rounded-xl text-sm space-y-2">
+                  <div className="flex justify-between"><span>Base Amount:</span><span className="font-medium">{formatNaira(Number(amount))}</span></div>
+                  <div className="flex justify-between"><span>Processing Fee:</span><span className="font-medium">N50.00</span></div>
+                  <div className="border-t border-blue-200 pt-2 flex justify-between font-bold text-base">
+                    <span>Total Charged:</span><span>{formatNaira(totalAmount)}</span>
                   </div>
                 </div>
               )}
-
-              <Button 
-                type="submit" 
-                className="w-full h-14 text-lg" 
-                disabled={!amount || initFund.isPending}
-              >
-                {initFund.isPending ? <Loader2 className="h-5 w-5 animate-spin mr-2" /> : null}
-                {initFund.isPending ? "Generating Account..." : "Generate Account Details"}
+              <Button type="submit" className="w-full h-14 text-lg" disabled={!amount || isPaying}>
+                {isPaying ? <Loader2 className="h-5 w-5 animate-spin mr-2" /> : null}
+                {isPaying ? "Opening payment..." : `Pay ${amount ? formatNaira(totalAmount) : ""} with Paystack`}
               </Button>
             </form>
           </CardContent>
         </Card>
-
-        {fundingData ? (
-          <Card className="border-primary bg-primary text-white shadow-lg overflow-hidden relative">
-            <div className="absolute right-0 top-0 w-32 h-32 bg-white/10 rounded-bl-full pointer-events-none" />
-            <CardContent className="pt-6 relative z-10 space-y-6">
-              <div className="text-center">
-                <h3 className="text-lg font-medium text-white/80">Transfer exactly</h3>
-                <p className="text-4xl font-bold mt-1">{formatNaira(fundingData.total_amount)}</p>
-              </div>
-
-              <div className="bg-white/10 rounded-xl p-4 space-y-4">
-                <div>
-                  <p className="text-sm text-white/60 mb-1">Bank Name</p>
-                  <p className="font-medium text-lg">Wema Bank</p>
-                </div>
-                <div>
-                  <p className="text-sm text-white/60 mb-1">Account Number</p>
-                  <div className="flex items-center justify-between">
-                    <p className="font-mono text-2xl font-bold tracking-wider">
-                      {/* Hardcoded account for demo per instructions implicitly asking for bank transfer instruction */}
-                      0123456789
-                    </p>
-                    <button 
-                      onClick={() => copyToClipboard("0123456789")}
-                      className="p-2 hover:bg-white/20 rounded-lg transition-colors"
-                    >
-                      {copied ? <CheckCircle2 className="h-5 w-5" /> : <Copy className="h-5 w-5" />}
-                    </button>
-                  </div>
-                </div>
-                <div>
-                  <p className="text-sm text-white/60 mb-1">Account Name</p>
-                  <p className="font-medium text-lg">CheapDataHub - {profile?.full_name}</p>
-                </div>
-              </div>
-
-              <div className="text-center text-sm text-white/80">
-                <p>Transfer to the account above to fund your wallet instantly.</p>
-                <p className="mt-2 text-xs opacity-70">Reference: {fundingData.reference}</p>
+        <div className="flex flex-col gap-4">
+          <Card className="bg-green-50 border-green-200">
+            <CardContent className="pt-6 space-y-3">
+              <h3 className="font-semibold text-green-800">Accepted Payment Methods</h3>
+              <div className="space-y-2 text-sm text-green-700">
+                <div className="flex items-center gap-2"><CheckCircle2 className="h-4 w-4" /><span>Debit / Credit Card (Visa, Mastercard, Verve)</span></div>
+                <div className="flex items-center gap-2"><CheckCircle2 className="h-4 w-4" /><span>Bank Transfer</span></div>
+                <div className="flex items-center gap-2"><CheckCircle2 className="h-4 w-4" /><span>USSD Banking</span></div>
+                <div className="flex items-center gap-2"><CheckCircle2 className="h-4 w-4" /><span>Mobile Money</span></div>
               </div>
             </CardContent>
           </Card>
-        ) : (
-          <div className="h-full border-2 border-dashed border-gray-200 rounded-xl flex items-center justify-center p-8 text-center text-gray-500">
-            <p>Enter an amount and click generate to get bank transfer details.</p>
-          </div>
-        )}
+          <Card className="bg-gray-50 border-gray-200">
+            <CardContent className="pt-6 text-sm text-gray-600 space-y-2">
+              <p className="font-medium text-gray-800">How it works</p>
+              <p>1. Enter the amount you want to add to your wallet.</p>
+              <p>2. Click Pay - a secure Paystack popup will open.</p>
+              <p>3. Choose your payment method (card, transfer, USSD).</p>
+              <p>4. Your wallet is credited automatically after confirmation.</p>
+            </CardContent>
+          </Card>
+        </div>
       </div>
     </div>
   );
