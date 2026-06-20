@@ -1,4 +1,4 @@
-import { useGetProfile, getGetProfileQueryKey } from "@workspace/api-client-react";
+import { useGetProfile, getGetProfileQueryKey } from "@/lib/supabase-hooks";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatNaira } from "@/lib/utils";
