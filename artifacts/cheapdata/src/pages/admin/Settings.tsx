@@ -3,7 +3,7 @@ import { useForm } from "react-hook-form";
 import { AdminLayout } from "@/components/layout/AdminLayout";
 import {
   useAdminGetSettings, useAdminUpdateSettings, useAdminTestPaystack, useAdminTestBrevo,
-  getGetSystemSettingsQueryKey,
+  useAdminTestFlutterwave, getGetSystemSettingsQueryKey,
 } from "@/lib/supabase-hooks";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -85,10 +85,12 @@ export default function AdminSettings() {
   const updateSettings = useAdminUpdateSettings();
   const testPaystack = useAdminTestPaystack();
   const testBrevo = useAdminTestBrevo();
+  const testFlutterwave = useAdminTestFlutterwave();
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
   const [paystackResult, setPaystackResult] = useState<{ ok: boolean; message: string } | null>(null);
+  const [flutterwaveResult, setFlutterwaveResult] = useState<{ ok: boolean; message: string } | null>(null);
   const [brevoResult, setBrevoResult] = useState<{ ok: boolean; message: string } | null>(null);
 
   const { register, handleSubmit, reset } = useForm<SettingsForm>({
@@ -145,6 +147,14 @@ export default function AdminSettings() {
     testPaystack.mutate(undefined, {
       onSuccess: (message) => setPaystackResult({ ok: true, message: message as string }),
       onError: (err: any) => setPaystackResult({ ok: false, message: err.message }),
+    });
+  };
+
+  const handleTestFlutterwave = () => {
+    setFlutterwaveResult(null);
+    testFlutterwave.mutate(undefined, {
+      onSuccess: (message) => setFlutterwaveResult({ ok: true, message: message as string }),
+      onError: (err: any) => setFlutterwaveResult({ ok: false, message: err.message }),
     });
   };
 
@@ -241,6 +251,22 @@ export default function AdminSettings() {
               <SecretInput id="flutterwave_secret_key" label="Secret Key / Webhook Hash" registration={register("flutterwave_secret_key")}
                 hasSavedValue={!!settings?.flutterwave_secret_key} />
               <p className="text-xs text-gray-400">The secret key is also used to verify Flutterwave webhook payloads.</p>
+              <TestResult result={flutterwaveResult} />
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleTestFlutterwave}
+                disabled={testFlutterwave.isPending || !settings?.flutterwave_secret_key}
+                className="flex items-center gap-2"
+              >
+                {testFlutterwave.isPending
+                  ? <><Loader2 className="h-4 w-4 animate-spin" /> Testing...</>
+                  : <><FlaskConical className="h-4 w-4" /> Test Flutterwave Key</>}
+              </Button>
+              {!settings?.flutterwave_secret_key && (
+                <p className="text-xs text-gray-400">Save your secret key first to enable testing.</p>
+              )}
             </CardContent>
           </Card>
 
