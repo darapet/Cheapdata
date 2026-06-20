@@ -1,4 +1,4 @@
-import { useGetWalletTransactions, getGetWalletTransactionsQueryKey } from "@workspace/api-client-react";
+import { useGetWalletTransactions, getGetWalletTransactionsQueryKey } from "@/lib/supabase-hooks";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatNaira, cn } from "@/lib/utils";
