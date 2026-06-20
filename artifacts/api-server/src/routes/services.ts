@@ -22,6 +22,11 @@ async function getSettings() {
   return data;
 }
 
+async function getUserProfile(userId: string) {
+  const { data } = await supabaseAdmin.from("profiles").select("email, full_name").eq("id", userId).single();
+  return data;
+}
+
 async function callCheapDataHub(apiKey: string, baseUrl: string, endpoint: string, payload: Record<string, unknown>) {
   const base = baseUrl || "https://www.cheapdatahub.com/api/v1";
   const response = await fetch(`${base}/${endpoint}`, {
@@ -54,7 +59,8 @@ router.post("/services/data", requireAuth, async (req: AuthRequest, res: Respons
     if (!plan) { res.status(404).json({ success: false, message: "Data plan not found" }); return; }
 
     const ref = `DATA-${Date.now()}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
-    const deduct = await deductWallet(req.userId!, plan.retail_price, `${network} ${plan.data_size} Data - ${phone}`, ref);
+    const description = `${network} ${plan.data_size} Data - ${phone}`;
+    const deduct = await deductWallet(req.userId!, plan.retail_price, description, ref);
     if (!deduct.success) { res.status(400).json({ success: false, message: deduct.message }); return; }
 
     const settings = await getSettings();
@@ -65,6 +71,21 @@ router.post("/services/data", requireAuth, async (req: AuthRequest, res: Respons
         });
       } catch { req.log.error("CheapDataHub data API failed"); }
     }
+
+    // Send receipt email (non-blocking)
+    void getUserProfile(req.userId!).then((user) => {
+      if (user?.email) {
+        void sendTransactionEmail({
+          toEmail: user.email,
+          toName: user.full_name || "Customer",
+          type: "debit",
+          description,
+          amount: plan.retail_price,
+          reference: ref,
+          status: "successful",
+        });
+      }
+    });
 
     res.json({ success: true, message: `${plan.data_size} data activated on ${phone}`, reference: ref, new_balance: deduct.newBalance });
   } catch (err) {
@@ -82,7 +103,8 @@ router.post("/services/airtime", requireAuth, async (req: AuthRequest, res: Resp
     if (!amount || amount < 50) { res.status(400).json({ success: false, message: "Minimum airtime is ₦50" }); return; }
 
     const ref = `AIR-${Date.now()}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
-    const deduct = await deductWallet(req.userId!, amount, `${network} Airtime - ${phone}`, ref);
+    const description = `${network} Airtime - ${phone}`;
+    const deduct = await deductWallet(req.userId!, amount, description, ref);
     if (!deduct.success) { res.status(400).json({ success: false, message: deduct.message }); return; }
 
     const settings = await getSettings();
@@ -91,6 +113,21 @@ router.post("/services/airtime", requireAuth, async (req: AuthRequest, res: Resp
         await callCheapDataHub(settings.cheapdatahub_api_key, settings.cheapdatahub_base_url, "airtime", { network, phone, amount, reference: ref });
       } catch { req.log.error("CheapDataHub airtime API failed"); }
     }
+
+    // Send receipt email (non-blocking)
+    void getUserProfile(req.userId!).then((user) => {
+      if (user?.email) {
+        void sendTransactionEmail({
+          toEmail: user.email,
+          toName: user.full_name || "Customer",
+          type: "debit",
+          description,
+          amount,
+          reference: ref,
+          status: "successful",
+        });
+      }
+    });
 
     res.json({ success: true, message: `₦${amount} airtime sent to ${phone}`, reference: ref, new_balance: deduct.newBalance });
   } catch (err) {
@@ -115,7 +152,8 @@ router.post("/services/cable", requireAuth, async (req: AuthRequest, res: Respon
     };
     const price = cablePrices[plan_id] || 2000;
     const ref = `CABLE-${Date.now()}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
-    const deduct = await deductWallet(req.userId!, price, `${cable_provider} Subscription - ${smart_card_number}`, ref);
+    const description = `${cable_provider} Subscription - ${smart_card_number}`;
+    const deduct = await deductWallet(req.userId!, price, description, ref);
     if (!deduct.success) { res.status(400).json({ success: false, message: deduct.message }); return; }
 
     const settings = await getSettings();
@@ -126,6 +164,21 @@ router.post("/services/cable", requireAuth, async (req: AuthRequest, res: Respon
         });
       } catch { req.log.error("CheapDataHub cable API failed"); }
     }
+
+    // Send receipt email (non-blocking)
+    void getUserProfile(req.userId!).then((user) => {
+      if (user?.email) {
+        void sendTransactionEmail({
+          toEmail: user.email,
+          toName: user.full_name || "Customer",
+          type: "debit",
+          description,
+          amount: price,
+          reference: ref,
+          status: "successful",
+        });
+      }
+    });
 
     res.json({ success: true, message: `${cable_provider} subscription activated for ${smart_card_number}`, reference: ref, new_balance: deduct.newBalance });
   } catch (err) {
@@ -143,7 +196,8 @@ router.post("/services/electricity", requireAuth, async (req: AuthRequest, res: 
     if (!amount || amount < 1000) { res.status(400).json({ success: false, message: "Minimum electricity amount is ₦1,000" }); return; }
 
     const ref = `ELEC-${Date.now()}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
-    const deduct = await deductWallet(req.userId!, amount, `${disco} Electricity - ${meter_number}`, ref);
+    const description = `${disco} Electricity - ${meter_number}`;
+    const deduct = await deductWallet(req.userId!, amount, description, ref);
     if (!deduct.success) { res.status(400).json({ success: false, message: deduct.message }); return; }
 
     const settings = await getSettings();
@@ -156,6 +210,21 @@ router.post("/services/electricity", requireAuth, async (req: AuthRequest, res: 
         token = (result.token as string) || null;
       } catch { req.log.error("CheapDataHub electricity API failed"); }
     }
+
+    // Send receipt email (non-blocking) — include token in description if available
+    void getUserProfile(req.userId!).then((user) => {
+      if (user?.email) {
+        void sendTransactionEmail({
+          toEmail: user.email,
+          toName: user.full_name || "Customer",
+          type: "debit",
+          description: token ? `${description} | Token: ${token}` : description,
+          amount,
+          reference: ref,
+          status: "successful",
+        });
+      }
+    });
 
     res.json({ success: true, message: `Electricity token purchased for meter ${meter_number}`, token, reference: ref, new_balance: deduct.newBalance });
   } catch (err) {

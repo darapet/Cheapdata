@@ -24,10 +24,10 @@ async function creditUserWallet(reference: string, amount: number, gateway: stri
     return { success: false, reason: "Funding record not found or already processed" };
   }
 
-  // Credit the wallet
+  // Credit the wallet — fetch all needed fields in one query
   const { data: profile } = await supabaseAdmin
     .from("profiles")
-    .select("wallet_balance")
+    .select("wallet_balance, email, full_name")
     .eq("id", funding.user_id)
     .single();
 
@@ -40,6 +40,19 @@ async function creditUserWallet(reference: string, amount: number, gateway: stri
     .from("wallet_fundings")
     .update({ status: "completed", payment_gateway: gateway })
     .eq("id", funding.id);
+
+  // Send wallet funded email (non-blocking)
+  if (profile?.email) {
+    void sendTransactionEmail({
+      toEmail: profile.email,
+      toName: profile.full_name || "Customer",
+      type: "credit",
+      description: "Wallet Funding",
+      amount: funding.amount,
+      reference,
+      status: "successful",
+    });
+  }
 
   return { success: true, userId: funding.user_id, amount: funding.amount };
 }
