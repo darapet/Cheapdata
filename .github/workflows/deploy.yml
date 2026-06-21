@@ -70,9 +70,9 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install Supabase CLI (pinned version, direct download)
+      - name: Install Supabase CLI v2.107.0
         run: |
-          curl -sSL https://github.com/supabase/cli/releases/download/v2.10.1/supabase_linux_amd64.tar.gz -o supabase.tar.gz
+          curl -sSL https://github.com/supabase/cli/releases/download/v2.107.0/supabase_2.107.0_linux_amd64.tar.gz -o supabase.tar.gz
           tar -xf supabase.tar.gz supabase
           sudo mv supabase /usr/local/bin/supabase
           supabase --version
