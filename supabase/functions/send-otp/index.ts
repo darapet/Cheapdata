@@ -13,6 +13,74 @@ async function signOtp(otp: string, userId: string, expiresAt: number): Promise<
   return Array.from(new Uint8Array(sig)).map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
+function buildOtpHtml(senderName: string, fullName: string, otp: string): string {
+  return `<!DOCTYPE html><html><body style="margin:0;padding:0;background:#f3f4f6;font-family:Arial,sans-serif;">
+<table width="100%" cellpadding="0" cellspacing="0" style="padding:40px 0;background:#f3f4f6;">
+<tr><td align="center"><table width="520" cellpadding="0" cellspacing="0" style="background:#fff;border-radius:12px;overflow:hidden;">
+<tr><td style="background:linear-gradient(135deg,#7c3aed,#6d28d9);padding:28px;text-align:center;">
+<h1 style="margin:0;color:#fff;font-size:20px;">${senderName}</h1></td></tr>
+<tr><td style="padding:32px;">
+<p style="margin:0 0 12px;font-size:15px;color:#374151;">Hi <strong>${fullName || 'there'}</strong>,</p>
+<p style="margin:0 0 24px;font-size:14px;color:#6b7280;">You requested a Transaction PIN reset. Use the code below — expires in <strong>10 minutes</strong>.</p>
+<div style="background:#f9fafb;border:2px dashed #e5e7eb;border-radius:12px;padding:24px;text-align:center;margin:0 0 24px;">
+<p style="margin:0 0 6px;font-size:12px;color:#9ca3af;letter-spacing:1px;text-transform:uppercase;">Your Reset Code</p>
+<p style="margin:0;font-size:42px;font-weight:900;letter-spacing:12px;color:#7c3aed;">${otp}</p>
+</div>
+<p style="margin:0;font-size:12px;color:#9ca3af;text-align:center;">If you did not request this, ignore this email.</p>
+</td></tr></table></td></tr></table></body></html>`;
+}
+
+async function sendOtpEmail(settings: any, toEmail: string, toName: string, otp: string): Promise<void> {
+  const provider    = (settings?.email_provider as string | null) ?? 'brevo';
+  const senderEmail = (settings?.brevo_sender_email as string | null)?.trim() ?? '';
+  const senderName  = (settings?.brevo_sender_name  as string | null)?.trim() || 'CheapDataHub';
+  const html        = buildOtpHtml(senderName, toName, otp);
+  const subject     = `${otp} — Your ${senderName} PIN Reset Code`;
+
+  if (!senderEmail) throw new Error('Sender email not configured in admin settings.');
+
+  if (provider === 'smtp') {
+    const smtpUser = (settings?.smtp_user as string | null)?.trim();
+    const smtpPass = (settings?.smtp_pass as string | null)?.trim();
+    const smtpHost = (settings?.smtp_host as string | null)?.trim() || 'smtp-relay.brevo.com';
+    const smtpPort = Number(settings?.smtp_port) || 587;
+
+    if (!smtpUser || !smtpPass) throw new Error('SMTP credentials not configured in admin settings.');
+
+    const { default: nodemailer } = await import('npm:nodemailer@6');
+    const transporter = nodemailer.createTransport({
+      host: smtpHost, port: smtpPort, secure: false,
+      auth: { user: smtpUser, pass: smtpPass },
+    });
+    await transporter.sendMail({
+      from: `"${senderName}" <${senderEmail}>`,
+      to: `"${toName}" <${toEmail}>`,
+      subject,
+      html,
+    });
+
+  } else {
+    // Brevo REST API (default)
+    const brevoKey = (settings?.brevo_api_key as string | null)?.trim();
+    if (!brevoKey) throw new Error('Brevo API key not configured in admin settings.');
+
+    const r = await fetch('https://api.brevo.com/v3/smtp/email', {
+      method: 'POST',
+      headers: { 'api-key': brevoKey, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sender: { name: senderName, email: senderEmail },
+        to: [{ email: toEmail, name: toName || 'Customer' }],
+        subject,
+        htmlContent: html,
+      }),
+    });
+    if (!r.ok) {
+      const err = await r.text();
+      throw new Error(`Brevo API error ${r.status}: ${err.slice(0, 200)}`);
+    }
+  }
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
 
@@ -40,58 +108,20 @@ Deno.serve(async (req) => {
       ]);
 
       const profile = profileRes.data;
-      const senderEmail = (settings?.brevo_sender_email as string | null)?.trim();
-      const senderName  = (settings?.brevo_sender_name  as string | null) || 'CheapDataHub';
-      const brevoKey    = (settings?.brevo_api_key       as string | null)?.trim();
+      console.log('[send-otp] user:', user.id, '| profile email:', profile?.email ?? 'MISSING', '| provider:', settings?.email_provider ?? 'brevo');
 
-      // Log what we found so you can debug in Supabase → Edge Function logs
-      console.log('[send-otp] user.id:', user.id);
-      console.log('[send-otp] profile email:', profile?.email ?? 'MISSING');
-      console.log('[send-otp] senderEmail configured:', !!senderEmail);
-      console.log('[send-otp] brevoKey configured:', !!brevoKey);
-
-      // Guard: require all three — give a clear error instead of silent skip
       if (!profile?.email) {
         return jsonResponse({ success: false, message: 'Your account email could not be found. Please contact support.' }, 400);
       }
-      if (!senderEmail || !brevoKey) {
-        console.error('[send-otp] Email not configured — missing brevo_api_key or brevo_sender_email in system_settings');
-        return jsonResponse({ success: false, message: 'Email service is not configured. Please contact the admin.' }, 500);
+
+      try {
+        await sendOtpEmail(settings, profile.email, profile.full_name || '', otp);
+        console.log('[send-otp] Email sent to:', profile.email);
+      } catch (emailErr: any) {
+        console.error('[send-otp] Email send failed:', emailErr.message);
+        return jsonResponse({ success: false, message: `Could not send email: ${emailErr.message}` }, 500);
       }
 
-      const html = `<!DOCTYPE html><html><body style="margin:0;padding:0;background:#f3f4f6;font-family:Arial,sans-serif;">
-<table width="100%" cellpadding="0" cellspacing="0" style="padding:40px 0;background:#f3f4f6;">
-<tr><td align="center"><table width="520" cellpadding="0" cellspacing="0" style="background:#fff;border-radius:12px;overflow:hidden;">
-<tr><td style="background:linear-gradient(135deg,#7c3aed,#6d28d9);padding:28px;text-align:center;">
-<h1 style="margin:0;color:#fff;font-size:20px;">${senderName}</h1></td></tr>
-<tr><td style="padding:32px;">
-<p style="margin:0 0 12px;font-size:15px;color:#374151;">Hi <strong>${profile.full_name || 'there'}</strong>,</p>
-<p style="margin:0 0 24px;font-size:14px;color:#6b7280;">You requested a Transaction PIN reset. Use the code below — expires in <strong>10 minutes</strong>.</p>
-<div style="background:#f9fafb;border:2px dashed #e5e7eb;border-radius:12px;padding:24px;text-align:center;margin:0 0 24px;">
-<p style="margin:0 0 6px;font-size:12px;color:#9ca3af;letter-spacing:1px;text-transform:uppercase;">Your Reset Code</p>
-<p style="margin:0;font-size:42px;font-weight:900;letter-spacing:12px;color:#7c3aed;">${otp}</p>
-</div>
-<p style="margin:0;font-size:12px;color:#9ca3af;text-align:center;">If you did not request this, ignore this email.</p>
-</td></tr></table></td></tr></table></body></html>`;
-
-      const brevoRes = await fetch('https://api.brevo.com/v3/smtp/email', {
-        method: 'POST',
-        headers: { 'api-key': brevoKey, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          sender: { name: senderName, email: senderEmail },
-          to: [{ email: profile.email, name: profile.full_name || 'Customer' }],
-          subject: `${otp} — Your ${senderName} PIN Reset Code`,
-          htmlContent: html,
-        }),
-      });
-
-      if (!brevoRes.ok) {
-        const errBody = await brevoRes.text();
-        console.error('[send-otp] Brevo API error:', brevoRes.status, errBody);
-        return jsonResponse({ success: false, message: `Failed to send email (Brevo error ${brevoRes.status}). Please try again or contact support.` }, 500);
-      }
-
-      console.log('[send-otp] Email sent successfully to:', profile.email);
       return jsonResponse({ success: true, token: otpToken, message: 'OTP sent to your email' });
     }
 
