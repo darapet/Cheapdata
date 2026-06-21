@@ -102,21 +102,33 @@ Deno.serve(async (req) => {
       const signature = await signOtp(otp, user.id, expiresAt);
       const otpToken = `${signature}:${expiresAt}`;
 
+      const requestEmail = (body as any).email?.toString().trim().toLowerCase();
+
       const [profileRes, settings] = await Promise.all([
         supabaseAdmin.from('profiles').select('email, full_name').eq('id', user.id).single(),
         getSettings(supabaseAdmin),
       ]);
 
       const profile = profileRes.data;
-      console.log('[send-otp] user:', user.id, '| profile email:', profile?.email ?? 'MISSING', '| provider:', settings?.email_provider ?? 'brevo');
 
-      if (!profile?.email) {
-        return jsonResponse({ success: false, message: 'Your account email could not be found. Please contact support.' }, 400);
+      // Use the email the user typed in, falling back to what's in the profile
+      const toEmail = requestEmail || profile?.email || '';
+      const toName  = profile?.full_name || '';
+
+      console.log('[send-otp] user:', user.id, '| sending to:', toEmail || 'MISSING', '| provider:', settings?.email_provider ?? 'brevo');
+
+      if (!toEmail) {
+        return jsonResponse({ success: false, message: 'No email address found. Please enter your email address.' }, 400);
+      }
+
+      // If user typed an email and their profile doesn't have one, save it now
+      if (requestEmail && !profile?.email) {
+        await supabaseAdmin.from('profiles').upsert({ id: user.id, email: requestEmail }, { onConflict: 'id' });
       }
 
       try {
-        await sendOtpEmail(settings, profile.email, profile.full_name || '', otp);
-        console.log('[send-otp] Email sent to:', profile.email);
+        await sendOtpEmail(settings, toEmail, toName, otp);
+        console.log('[send-otp] Email sent to:', toEmail);
       } catch (emailErr: any) {
         console.error('[send-otp] Email send failed:', emailErr.message);
         return jsonResponse({ success: false, message: `Could not send email: ${emailErr.message}` }, 500);
