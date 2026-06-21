@@ -38,9 +38,9 @@ export default function BuyAirtime() {
     setIsPinModalOpen(true);
   };
 
-  const executePurchase = () => {
+  const executePurchase = (pin: string) => {
     buyAirtime.mutate(
-      { data: { phone, network, amount: Number(amount), pin: "VERIFIED_BY_MODAL" } },
+      { data: { phone, network, amount: Number(amount), pin } },
       {
         onSuccess: (data) => {
           if (data.success) {
