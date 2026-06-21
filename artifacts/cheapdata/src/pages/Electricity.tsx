@@ -21,6 +21,7 @@ export default function Electricity() {
   const [meterType, setMeterType] = useState("prepaid");
   const [meterNumber, setMeterNumber] = useState("");
   const [amount, setAmount] = useState("");
+  const [phone, setPhone] = useState("");
   const [isPinModalOpen, setIsPinModalOpen] = useState(false);
   const { toast } = useToast();
 
@@ -44,13 +45,14 @@ export default function Electricity() {
 
   const executePurchase = () => {
     buyElectricity.mutate(
-      { data: { meter_number: meterNumber, disco, amount: amountNum, meter_type: meterType, pin: "VERIFIED_BY_MODAL" } },
+      { data: { meter_number: meterNumber, disco, amount: amountNum, meter_type: meterType, phone, pin: "VERIFIED_BY_MODAL" } },
       {
         onSuccess: (data) => {
           if (data.success) {
             toast({ title: "Success!", description: data.message });
             setMeterNumber("");
             setAmount("");
+            setPhone("");
           } else {
             toast({ title: "Purchase Failed", description: data.message, variant: "destructive" });
           }
@@ -109,6 +111,18 @@ export default function Electricity() {
             </div>
 
             <div className="space-y-2">
+                <Label htmlFor="elec-phone">Contact Phone Number</Label>
+                <Input
+                  id="elec-phone"
+                  type="tel"
+                  placeholder="e.g. 08012345678"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  maxLength={11}
+                />
+              </div>
+
+              <div className="space-y-2">
               <Label htmlFor="amount" className="text-base">Electricity Amount (₦)</Label>
               <Input id="amount" type="text" value={amount}
                 onChange={e => setAmount(e.target.value.replace(/[^0-9]/g, ""))}
