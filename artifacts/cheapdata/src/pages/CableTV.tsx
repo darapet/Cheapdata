@@ -138,7 +138,7 @@ export default function CableTV() {
     setIsPinModalOpen(true);
   };
 
-  const executePurchase = () => {
+  const executePurchase = (pin: string) => {
     if (!selectedPlan) return;
     buyCable.mutate(
       {
@@ -148,7 +148,7 @@ export default function CableTV() {
           plan_id: selectedPlan.plan_id,
           phone,
           amount: selectedPlan.retail_price,
-          pin: "VERIFIED_BY_MODAL",
+          pin,
         },
       },
       {
