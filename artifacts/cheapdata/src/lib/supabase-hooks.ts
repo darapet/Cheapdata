@@ -122,37 +122,26 @@ async function deductAndRecord(userId: string, balance: number, amount: number, 
 }
 
 // ── API helpers for Express backend ───────────────────────────────────────────
-const API_BASE = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '');
+// Edge function base — always available since VITE_SUPABASE_URL is required for the app to work
+const EDGE_BASE = (import.meta.env.VITE_SUPABASE_URL ?? '').replace(/\/$/, '') + '/functions/v1';
 async function authHeaders() {
   const { data } = await supabase.auth.getSession();
   return { 'Content-Type': 'application/json', Authorization: `Bearer ${data.session?.access_token ?? ''}` };
 }
 
-// ── Service hooks — route through Express (CheapDataHub integration) ──────────
-// If API_BASE is set, calls the Express backend which handles CheapDataHub delivery.
-// Falls back to Supabase-direct (manual fulfillment mode) if no API server is configured.
+// ── Service hooks — routed through Supabase Edge Functions ───────────────────
+// Edge functions run server-side so they can call CheapDataHub without CORS issues.
 
 export function useBuyData() {
   return useMutation({
     mutationFn: async ({ data }: { data: { phone: string; plan_id: string; network: string; pin: string } }) => {
-      if (API_BASE) {
-        const res = await fetch(`${API_BASE}/api/services/data`, {
-          method: 'POST',
-          headers: await authHeaders(),
-          body: JSON.stringify(data),
-        });
-        const body = await res.json() as { success: boolean; message: string };
-        return body;
-      }
-      // Fallback: Supabase direct (no CheapDataHub)
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('Not authenticated');
-      const { data: plan } = await supabase.from('data_plans').select('*').eq('plan_id', data.plan_id).single();
-      if (!plan) return { success: false, message: 'Plan not found.' };
-      const balance = await getProfileBalance(user.id);
-      if (balance < plan.retail_price) return { success: false, message: 'Insufficient wallet balance. Please fund your wallet.' };
-      await deductAndRecord(user.id, balance, plan.retail_price, 'data', `${data.network} ${plan.plan_name} to ${data.phone}`, makeRef('DATA'));
-      return { success: true, message: `${plan.plan_name} data sent to ${data.phone} successfully!` };
+      const res = await fetch(`${EDGE_BASE}/buy-data`, {
+        method: 'POST',
+        headers: await authHeaders(),
+        body: JSON.stringify(data),
+      });
+      const body = await res.json() as { success: boolean; message: string; reference?: string; new_balance?: number };
+      return body;
     },
   });
 }
@@ -160,21 +149,13 @@ export function useBuyData() {
 export function useBuyAirtime() {
   return useMutation({
     mutationFn: async ({ data }: { data: { phone: string; network: string; amount: number; pin: string } }) => {
-      if (API_BASE) {
-        const res = await fetch(`${API_BASE}/api/services/airtime`, {
-          method: 'POST',
-          headers: await authHeaders(),
-          body: JSON.stringify(data),
-        });
-        const body = await res.json() as { success: boolean; message: string };
-        return body;
-      }
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('Not authenticated');
-      const balance = await getProfileBalance(user.id);
-      if (balance < data.amount) return { success: false, message: 'Insufficient wallet balance. Please fund your wallet.' };
-      await deductAndRecord(user.id, balance, data.amount, 'airtime', `${data.network} Airtime N${data.amount.toLocaleString()} to ${data.phone}`, makeRef('AIRTIME'));
-      return { success: true, message: `N${data.amount.toLocaleString()} airtime sent to ${data.phone} successfully!` };
+      const res = await fetch(`${EDGE_BASE}/buy-airtime`, {
+        method: 'POST',
+        headers: await authHeaders(),
+        body: JSON.stringify(data),
+      });
+      const body = await res.json() as { success: boolean; message: string; reference?: string; new_balance?: number };
+      return body;
     },
   });
 }
@@ -182,21 +163,13 @@ export function useBuyAirtime() {
 export function useBuyCable() {
   return useMutation({
     mutationFn: async ({ data }: { data: { smart_card_number: string; cable_provider: string; plan_id: string; amount: number; pin: string } }) => {
-      if (API_BASE) {
-        const res = await fetch(`${API_BASE}/api/services/cable`, {
-          method: 'POST',
-          headers: await authHeaders(),
-          body: JSON.stringify(data),
-        });
-        const body = await res.json() as { success: boolean; message: string };
-        return body;
-      }
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('Not authenticated');
-      const balance = await getProfileBalance(user.id);
-      if (balance < data.amount) return { success: false, message: 'Insufficient wallet balance. Please fund your wallet.' };
-      await deductAndRecord(user.id, balance, data.amount, 'cable', `${data.cable_provider} Subscription IUC: ${data.smart_card_number}`, makeRef('CABLE'));
-      return { success: true, message: 'Cable TV subscription activated successfully!' };
+      const res = await fetch(`${EDGE_BASE}/buy-cable`, {
+        method: 'POST',
+        headers: await authHeaders(),
+        body: JSON.stringify(data),
+      });
+      const body = await res.json() as { success: boolean; message: string; reference?: string; new_balance?: number };
+      return body;
     },
   });
 }
@@ -204,21 +177,13 @@ export function useBuyCable() {
 export function useBuyElectricity() {
   return useMutation({
     mutationFn: async ({ data }: { data: { meter_number: string; disco: string; amount: number; meter_type: string; pin: string } }) => {
-      if (API_BASE) {
-        const res = await fetch(`${API_BASE}/api/services/electricity`, {
-          method: 'POST',
-          headers: await authHeaders(),
-          body: JSON.stringify(data),
-        });
-        const body = await res.json() as { success: boolean; message: string };
-        return body;
-      }
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('Not authenticated');
-      const balance = await getProfileBalance(user.id);
-      if (balance < data.amount) return { success: false, message: 'Insufficient wallet balance. Please fund your wallet.' };
-      await deductAndRecord(user.id, balance, data.amount, 'electricity', `${data.disco} ${data.meter_type} Token Meter: ${data.meter_number}`, makeRef('ELEC'));
-      return { success: true, message: 'Electricity token purchased successfully!' };
+      const res = await fetch(`${EDGE_BASE}/buy-electricity`, {
+        method: 'POST',
+        headers: await authHeaders(),
+        body: JSON.stringify(data),
+      });
+      const body = await res.json() as { success: boolean; message: string; token?: string; reference?: string; new_balance?: number };
+      return body;
     },
   });
 }
@@ -393,17 +358,8 @@ export function useAdminTestPaystack() {
   export function useAdminTestCheapDataHub() {
     return useMutation({
       mutationFn: async () => {
-        // Must go through the backend — CheapDataHub blocks direct browser requests (CORS)
-        const headers = await authHeaders();
-        const r = await fetch(`${API_BASE}/api/admin/cheapdatahub-balance`, { headers });
-        const text = await r.text();
-        // Guard against HTML responses (happens when API server is not reachable)
-        if (text.trimStart().startsWith('<')) {
-          throw new Error(
-            'API server not reachable. If you are using the GitHub Pages build, set VITE_API_BASE_URL to your deployed Replit API URL and rebuild.'
-          );
-        }
-        const body = JSON.parse(text) as { ok?: boolean; balance?: unknown; message?: string; error?: string };
+        const r = await fetch(`${EDGE_BASE}/test-cheapdatahub`, { headers: await authHeaders() });
+        const body = await r.json() as { ok?: boolean; balance?: unknown; message?: string; error?: string };
         if (!r.ok || body.error) throw new Error(body.error ?? 'Could not reach CheapDataHub. Verify your API key.');
         return body.message ?? `CheapDataHub key is valid ✓ — Wallet Balance: ₦${Number(body.balance).toLocaleString()}`;
       },
@@ -458,18 +414,14 @@ export function useAdminTestPaystack() {
 export function useBuyEducation() {
   return useMutation({
     mutationFn: async ({ data }: { data: { exam_body: string; plan_id: string; quantity: number; pin: string } }) => {
-      if (API_BASE) {
-        const res = await fetch(`${API_BASE}/api/services/education`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
-          body: JSON.stringify(data),
-        });
-        const body = await res.json() as { success: boolean; message: string; pins?: string[] };
-        if (!res.ok) throw new Error(body.message || 'Education purchase failed');
-        return body;
-      }
-      // Fallback: manual mode without API
-      return { success: true, message: 'PIN request recorded. You will be notified shortly.', pins: [] };
+      const res = await fetch(`${EDGE_BASE}/buy-education`, {
+        method: 'POST',
+        headers: await authHeaders(),
+        body: JSON.stringify(data),
+      });
+      const body = await res.json() as { success: boolean; message: string; pins?: string[]; reference?: string; new_balance?: number };
+      if (!res.ok) throw new Error(body.message || 'Education purchase failed');
+      return body;
     },
   });
 }
