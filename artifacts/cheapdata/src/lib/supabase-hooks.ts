@@ -396,7 +396,14 @@ export function useAdminTestPaystack() {
         // Must go through the backend — CheapDataHub blocks direct browser requests (CORS)
         const headers = await authHeaders();
         const r = await fetch(`${API_BASE}/api/admin/cheapdatahub-balance`, { headers });
-        const body = await r.json() as { ok?: boolean; balance?: unknown; message?: string; error?: string };
+        const text = await r.text();
+        // Guard against HTML responses (happens when API server is not reachable)
+        if (text.trimStart().startsWith('<')) {
+          throw new Error(
+            'API server not reachable. If you are using the GitHub Pages build, set VITE_API_BASE_URL to your deployed Replit API URL and rebuild.'
+          );
+        }
+        const body = JSON.parse(text) as { ok?: boolean; balance?: unknown; message?: string; error?: string };
         if (!r.ok || body.error) throw new Error(body.error ?? 'Could not reach CheapDataHub. Verify your API key.');
         return body.message ?? `CheapDataHub key is valid ✓ — Wallet Balance: ₦${Number(body.balance).toLocaleString()}`;
       },
