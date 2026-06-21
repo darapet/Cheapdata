@@ -1,0 +1,135 @@
+name: Sync CheapDataHub Plans (Hourly)
+
+on:
+  schedule:
+    - cron: "0 * * * *"
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Sync plans from CheapDataHub
+        env:
+          SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          node - <<'EOF'
+          const https = require('https');
+          const { URL } = require('url');
+
+          async function fetch(url, opts = {}) {
+            return new Promise((resolve, reject) => {
+              const parsed = new URL(url);
+              const options = {
+                hostname: parsed.hostname,
+                path: parsed.pathname + parsed.search,
+                method: opts.method || 'GET',
+                headers: opts.headers || {},
+              };
+              const req = https.request(options, res => {
+                let data = '';
+                res.on('data', c => data += c);
+                res.on('end', () => resolve({ ok: res.statusCode < 300, status: res.statusCode, text: () => Promise.resolve(data), json: () => Promise.resolve(JSON.parse(data)) }));
+              });
+              req.on('error', reject);
+              if (opts.body) req.write(opts.body);
+              req.end();
+            });
+          }
+
+          const SUPABASE_URL = process.env.SUPABASE_URL;
+          const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+          const MARKUP = 50;
+
+          if (!SUPABASE_URL || !SERVICE_KEY) {
+            console.error('Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY secret');
+            process.exit(1);
+          }
+
+          async function scrapePlans() {
+            const res = await fetch('https://www.cheapdatahub.ng/api/plan-ids/', {
+              headers: { 'User-Agent': 'Mozilla/5.0 (compatible; CheapDataHub-sync/1.0)' }
+            });
+            const html = await res.text();
+
+            // Strip tags to plain text
+            const text = html
+              .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+              .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+              .replace(/<[^>]+>/g, ' ')
+              .replace(/\s+/g, ' ');
+
+            // Parse: NETWORK ServiceType Plan Name  ID  Price  Copy
+            const planRegex = /(MTN|AIRTEL|GLO|DSTV|GOTV|STARTIMES)\s+(Data|Cable TV)\s+([^0-9]+?)\s+(\d+)\s+([\d.]+)\s+Copy/gi;
+            const plans = [];
+            let match;
+            while ((match = planRegex.exec(text)) !== null) {
+              const [, network, serviceRaw, name, id, price] = match;
+              const service = serviceRaw.trim().toLowerCase() === 'cable tv' ? 'cable' : 'data';
+              plans.push({
+                network: network.toUpperCase(),
+                plan_name: `${network} ${name.trim()}`,
+                data_size: service === 'data' ? extractSize(name) : 'N/A',
+                wholesale_price: parseFloat(price),
+                retail_price: parseFloat(price) + MARKUP,
+                plan_id: `cdh-${network.toLowerCase()}-${id}`,
+                cheapdatahub_plan_id: id,
+                validity: extractValidity(name),
+                is_active: true,
+                service_type: service,
+              });
+            }
+            return plans;
+          }
+
+          function extractSize(name) {
+            const m = name.match(/(\d+(?:\.\d+)?)\s*(GB|MB|TB)/i);
+            return m ? `${m[1]}${m[2].toUpperCase()}` : 'N/A';
+          }
+
+          function extractValidity(name) {
+            const m = name.match(/\(([^)]+)\)/);
+            return m ? m[1] : '30 Days';
+          }
+
+          async function upsertPlans(plans) {
+            if (!plans.length) { console.log('No plans parsed'); return; }
+            const headers = {
+              'apikey': SERVICE_KEY,
+              'Authorization': `Bearer ${SERVICE_KEY}`,
+              'Content-Type': 'application/json',
+              'Prefer': 'resolution=merge-duplicates,return=minimal',
+            };
+            // Upsert in batches of 20
+            for (let i = 0; i < plans.length; i += 20) {
+              const batch = plans.slice(i, i + 20);
+              const res = await fetch(`${SUPABASE_URL}/rest/v1/data_plans`, {
+                method: 'POST',
+                headers,
+                body: JSON.stringify(batch),
+              });
+              if (!res.ok) {
+                const err = await res.text();
+                console.error(`Batch ${Math.floor(i/20)+1} error:`, err.slice(0, 200));
+              } else {
+                console.log(`Batch ${Math.floor(i/20)+1}: upserted ${batch.length} plans`);
+              }
+            }
+
+            // Update sync timestamp in system_settings
+            await fetch(`${SUPABASE_URL}/rest/v1/system_settings?id=eq.1`, {
+              method: 'PATCH',
+              headers,
+              body: JSON.stringify({ last_auto_sync_at: new Date().toISOString(), last_auto_sync_result: `OK: ${plans.length} plans synced` }),
+            });
+          }
+
+          scrapePlans()
+            .then(plans => {
+              console.log(`Scraped ${plans.length} plans from CheapDataHub`);
+              return upsertPlans(plans);
+            })
+            .then(() => console.log('Sync complete!'))
+            .catch(err => { console.error('Sync failed:', err.message); process.exit(1); });
+          EOF
