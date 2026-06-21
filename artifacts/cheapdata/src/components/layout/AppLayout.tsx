@@ -1,5 +1,5 @@
 import { Link, useLocation } from "wouter";
-import { Home, Wifi, Phone, Tv, Zap, Wallet, History, User, LogOut } from "lucide-react";
+import { Home, Wifi, Phone, Tv, Zap, Wallet, History, User, LogOut, GraduationCap } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
@@ -10,6 +10,7 @@ const navigation = [
   { name: "Buy Airtime", href: "/buy-airtime", icon: Phone },
   { name: "Cable TV", href: "/cable-tv", icon: Tv },
   { name: "Electricity", href: "/electricity", icon: Zap },
+  { name: "Education", href: "/education", icon: GraduationCap },
   { name: "Fund Wallet", href: "/fund-wallet", icon: Wallet },
   { name: "Transactions", href: "/transactions", icon: History },
   { name: "Profile", href: "/profile", icon: User },
@@ -78,18 +79,21 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
       </div>
 
       <main className="flex-1 overflow-y-auto p-4 md:p-8">
-        <div className="mx-auto max-w-4xl">
-          {children}
-        </div>
+        <div className="mx-auto max-w-4xl">{children}</div>
       </main>
 
-      {/* Mobile bottom nav */}
+      {/* Mobile bottom nav — now includes Education */}
       <div className="md:hidden bg-white border-t border-gray-200 p-2 flex items-center justify-around">
         {navigation.slice(0, 5).map((item) => (
           <Link key={item.name} href={item.href}>
-            <a className={cn("p-2 rounded-lg flex flex-col items-center gap-1", location === item.href ? "text-primary" : "text-gray-500")}>
+            <a
+              className={cn(
+                "p-2 rounded-lg flex flex-col items-center gap-1",
+                location === item.href ? "text-primary" : "text-gray-500"
+              )}
+            >
               <item.icon className="h-5 w-5" />
-              <span className="text-[10px] font-medium">{item.name.split(' ')[0]}</span>
+              <span className="text-[10px]">{item.name}</span>
             </a>
           </Link>
         ))}
