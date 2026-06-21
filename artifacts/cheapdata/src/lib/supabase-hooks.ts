@@ -90,7 +90,9 @@ export function useInitializeWalletFunding() {
     mutationFn: async ({ data: { amount } }: { data: { amount: number } }) => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Not authenticated');
-      const { data: settings } = await supabase.from('system_settings').select('cheapdatahub_funding_account').maybeSingle();
+      // Use the safe RPC function — only exposes funding_account & gateway, never secret keys
+      const { data: publicSettings } = await supabase.rpc('get_public_settings');
+      const settings = Array.isArray(publicSettings) ? publicSettings[0] : publicSettings;
       const reference = makeRef('CDH');
       const total_amount = amount + 50;
       await supabase.from('wallet_fundings').insert({ user_id: user.id, type: 'funding', description: `Wallet Funding N${amount.toLocaleString()}`, amount, status: 'pending', reference });
