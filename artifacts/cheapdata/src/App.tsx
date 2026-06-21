@@ -29,6 +29,8 @@ import NotFound from "@/pages/not-found";
 
 const queryClient = new QueryClient();
 
+const basePath = (import.meta.env.BASE_URL ?? "/").replace(/\/$/, "");
+
 function Router() {
   return (
     <Switch>
@@ -75,35 +77,80 @@ function Router() {
         )}
       </Route>
 
-      <Route path="/:rest*">
+      <Route path="/dashboard">
         {() => (
           <ProtectedRoute>
-            <AppLayout>
-              <Switch>
-                <Route path="/dashboard" component={Dashboard} />
-                <Route path="/buy-data" component={BuyData} />
-                <Route path="/buy-airtime" component={BuyAirtime} />
-                <Route path="/cable-tv" component={CableTV} />
-                <Route path="/electricity" component={Electricity} />
-                <Route path="/education" component={Education} />
-                <Route path="/fund-wallet" component={FundWallet} />
-                <Route path="/transactions" component={Transactions} />
-                <Route path="/profile" component={Profile} />
-                <Route component={NotFound} />
-              </Switch>
-            </AppLayout>
+            <AppLayout><Dashboard /></AppLayout>
           </ProtectedRoute>
         )}
       </Route>
+      <Route path="/buy-data">
+        {() => (
+          <ProtectedRoute>
+            <AppLayout><BuyData /></AppLayout>
+          </ProtectedRoute>
+        )}
+      </Route>
+      <Route path="/buy-airtime">
+        {() => (
+          <ProtectedRoute>
+            <AppLayout><BuyAirtime /></AppLayout>
+          </ProtectedRoute>
+        )}
+      </Route>
+      <Route path="/cable-tv">
+        {() => (
+          <ProtectedRoute>
+            <AppLayout><CableTV /></AppLayout>
+          </ProtectedRoute>
+        )}
+      </Route>
+      <Route path="/electricity">
+        {() => (
+          <ProtectedRoute>
+            <AppLayout><Electricity /></AppLayout>
+          </ProtectedRoute>
+        )}
+      </Route>
+      <Route path="/education">
+        {() => (
+          <ProtectedRoute>
+            <AppLayout><Education /></AppLayout>
+          </ProtectedRoute>
+        )}
+      </Route>
+      <Route path="/fund-wallet">
+        {() => (
+          <ProtectedRoute>
+            <AppLayout><FundWallet /></AppLayout>
+          </ProtectedRoute>
+        )}
+      </Route>
+      <Route path="/transactions">
+        {() => (
+          <ProtectedRoute>
+            <AppLayout><Transactions /></AppLayout>
+          </ProtectedRoute>
+        )}
+      </Route>
+      <Route path="/profile">
+        {() => (
+          <ProtectedRoute>
+            <AppLayout><Profile /></AppLayout>
+          </ProtectedRoute>
+        )}
+      </Route>
+
+      <Route component={NotFound} />
     </Switch>
   );
 }
 
-function App() {
+export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
-        <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
+        <WouterRouter base={basePath}>
           <Router />
         </WouterRouter>
         <Toaster />
@@ -111,5 +158,3 @@ function App() {
     </QueryClientProvider>
   );
 }
-
-export default App;
