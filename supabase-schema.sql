@@ -139,10 +139,26 @@ CREATE POLICY "Service role full access on system_settings"
   ON public.system_settings FOR ALL
   USING (auth.role() = 'service_role');
 
--- Authenticated users can read non-sensitive settings (for funding account display)
-CREATE POLICY "Authenticated users can read public settings"
-  ON public.system_settings FOR SELECT
-  USING (auth.role() = 'authenticated');
+-- IMPORTANT: Do NOT add a broad SELECT policy for authenticated users here.
+-- That would expose secret API keys (Paystack, Brevo, etc.) to any logged-in user.
+-- Instead, use the get_public_settings() function below to expose only safe fields.
+
+-- Safe function: exposes only non-sensitive fields to regular users
+CREATE OR REPLACE FUNCTION public.get_public_settings()
+RETURNS TABLE (
+  cheapdatahub_funding_account text,
+  active_payment_gateway text
+)
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT cheapdatahub_funding_account, active_payment_gateway
+  FROM public.system_settings
+  LIMIT 1;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.get_public_settings() TO authenticated;
 
 -- ─── Seed initial data_plans ──────────────────────────────────────────────────
 INSERT INTO public.data_plans (network, plan_name, data_size, retail_price, wholesale_price, plan_id, validity) VALUES
