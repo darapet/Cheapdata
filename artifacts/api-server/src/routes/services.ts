@@ -27,12 +27,48 @@ async function getUserProfile(userId: string) {
   return data;
 }
 
-async function callCheapDataHub(apiKey: string, baseUrl: string, endpoint: string, payload: Record<string, unknown>) {
-  const base = baseUrl || "https://www.cheapdatahub.com/api/v1";
-  const response = await fetch(`${base}/${endpoint}`, {
+// Network provider IDs for CheapDataHub.ng
+const NETWORK_PROVIDER_IDS: Record<string, number> = {
+  MTN: 1,
+  AIRTEL: 2,
+  GLO: 3,
+  "9MOBILE": 4,
+};
+
+async function callCheapDataHubAirtime(apiKey: string, network: string, phone: string, amount: number) {
+  const providerId = NETWORK_PROVIDER_IDS[network.toUpperCase()] ?? 1;
+  const response = await fetch("https://www.cheapdatahub.ng/api/v1/resellers/airtime/purchase/", {
     method: "POST",
-    headers: { Authorization: `Token ${apiKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
+    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ provider_id: providerId, phone_number: phone, amount }),
+  });
+  return response.json();
+}
+
+async function callCheapDataHubData(apiKey: string, network: string, phone: string, planId: string, amount: number) {
+  const providerId = NETWORK_PROVIDER_IDS[network.toUpperCase()] ?? 1;
+  const response = await fetch("https://www.cheapdatahub.ng/api/v1/resellers/data/purchase/", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ provider_id: providerId, phone_number: phone, amount, plan_id: planId }),
+  });
+  return response.json();
+}
+
+async function callCheapDataHubCable(apiKey: string, provider: string, smartCard: string, planId: string, amount: number) {
+  const response = await fetch("https://www.cheapdatahub.ng/api/v1/resellers/cable/purchase/", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ provider, smart_card_number: smartCard, plan_id: planId, amount }),
+  });
+  return response.json();
+}
+
+async function callCheapDataHubElectricity(apiKey: string, disco: string, meterNumber: string, meterType: string, amount: number) {
+  const response = await fetch("https://www.cheapdatahub.ng/api/v1/resellers/electricity/purchase/", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ disco, meter_number: meterNumber, meter_type: meterType, amount }),
   });
   return response.json();
 }
@@ -66,24 +102,13 @@ router.post("/services/data", requireAuth, async (req: AuthRequest, res: Respons
     const settings = await getSettings();
     if (settings?.cheapdatahub_api_key) {
       try {
-        await callCheapDataHub(settings.cheapdatahub_api_key, settings.cheapdatahub_base_url, "data", {
-          network_id: network, plan_id, phone, amount: plan.retail_price, reference: ref,
-        });
+        await callCheapDataHubData(settings.cheapdatahub_api_key, network, phone, plan_id, plan.retail_price);
       } catch { req.log.error("CheapDataHub data API failed"); }
     }
 
-    // Send receipt email (non-blocking)
     void getUserProfile(req.userId!).then((user) => {
       if (user?.email) {
-        void sendTransactionEmail({
-          toEmail: user.email,
-          toName: user.full_name || "Customer",
-          type: "debit",
-          description,
-          amount: plan.retail_price,
-          reference: ref,
-          status: "successful",
-        });
+        void sendTransactionEmail({ toEmail: user.email, toName: user.full_name || "Customer", type: "debit", description, amount: plan.retail_price, reference: ref, status: "successful" });
       }
     });
 
@@ -110,22 +135,13 @@ router.post("/services/airtime", requireAuth, async (req: AuthRequest, res: Resp
     const settings = await getSettings();
     if (settings?.cheapdatahub_api_key) {
       try {
-        await callCheapDataHub(settings.cheapdatahub_api_key, settings.cheapdatahub_base_url, "airtime", { network, phone, amount, reference: ref });
+        await callCheapDataHubAirtime(settings.cheapdatahub_api_key, network, phone, amount);
       } catch { req.log.error("CheapDataHub airtime API failed"); }
     }
 
-    // Send receipt email (non-blocking)
     void getUserProfile(req.userId!).then((user) => {
       if (user?.email) {
-        void sendTransactionEmail({
-          toEmail: user.email,
-          toName: user.full_name || "Customer",
-          type: "debit",
-          description,
-          amount,
-          reference: ref,
-          status: "successful",
-        });
+        void sendTransactionEmail({ toEmail: user.email, toName: user.full_name || "Customer", type: "debit", description, amount, reference: ref, status: "successful" });
       }
     });
 
@@ -159,24 +175,13 @@ router.post("/services/cable", requireAuth, async (req: AuthRequest, res: Respon
     const settings = await getSettings();
     if (settings?.cheapdatahub_api_key) {
       try {
-        await callCheapDataHub(settings.cheapdatahub_api_key, settings.cheapdatahub_base_url, "cable", {
-          provider: cable_provider, plan_id, smart_card: smart_card_number, amount: price, reference: ref,
-        });
+        await callCheapDataHubCable(settings.cheapdatahub_api_key, cable_provider, smart_card_number, plan_id, price);
       } catch { req.log.error("CheapDataHub cable API failed"); }
     }
 
-    // Send receipt email (non-blocking)
     void getUserProfile(req.userId!).then((user) => {
       if (user?.email) {
-        void sendTransactionEmail({
-          toEmail: user.email,
-          toName: user.full_name || "Customer",
-          type: "debit",
-          description,
-          amount: price,
-          reference: ref,
-          status: "successful",
-        });
+        void sendTransactionEmail({ toEmail: user.email, toName: user.full_name || "Customer", type: "debit", description, amount: price, reference: ref, status: "successful" });
       }
     });
 
@@ -204,25 +209,14 @@ router.post("/services/electricity", requireAuth, async (req: AuthRequest, res: 
     let token: string | null = null;
     if (settings?.cheapdatahub_api_key) {
       try {
-        const result = await callCheapDataHub(settings.cheapdatahub_api_key, settings.cheapdatahub_base_url, "electricity", {
-          disco, meter_number, meter_type, amount, reference: ref,
-        }) as Record<string, unknown>;
+        const result = await callCheapDataHubElectricity(settings.cheapdatahub_api_key, disco, meter_number, meter_type, amount) as Record<string, unknown>;
         token = (result.token as string) || null;
       } catch { req.log.error("CheapDataHub electricity API failed"); }
     }
 
-    // Send receipt email (non-blocking) — include token in description if available
     void getUserProfile(req.userId!).then((user) => {
       if (user?.email) {
-        void sendTransactionEmail({
-          toEmail: user.email,
-          toName: user.full_name || "Customer",
-          type: "debit",
-          description: token ? `${description} | Token: ${token}` : description,
-          amount,
-          reference: ref,
-          status: "successful",
-        });
+        void sendTransactionEmail({ toEmail: user.email, toName: user.full_name || "Customer", type: "debit", description: token ? `${description} | Token: ${token}` : description, amount, reference: ref, status: "successful" });
       }
     });
 
