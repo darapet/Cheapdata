@@ -72,9 +72,9 @@ jobs:
 
       - name: Install Supabase CLI v2.107.0
         run: |
-          curl -sSL https://github.com/supabase/cli/releases/download/v2.107.0/supabase_2.107.0_linux_amd64.tar.gz -o supabase.tar.gz
-          tar -xf supabase.tar.gz supabase
-          sudo mv supabase /usr/local/bin/supabase
+          curl -sSL https://github.com/supabase/cli/releases/download/v2.107.0/supabase_2.107.0_linux_amd64.tar.gz -o /tmp/supabase.tar.gz
+          tar -xf /tmp/supabase.tar.gz -C /tmp supabase
+          sudo mv /tmp/supabase /usr/local/bin/supabase
           supabase --version
 
       - name: Deploy Edge Functions
