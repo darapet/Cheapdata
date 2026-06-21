@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
+
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -9,6 +10,13 @@ import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, RefreshCw, Plus, Trash2, ToggleLeft, ToggleRight, Database } from "lucide-react";
 import { formatNaira } from "@/lib/utils";
+
+const EDGE_BASE = (import.meta.env.VITE_SUPABASE_URL ?? '').replace(/\/$/, '') + '/functions/v1';
+async function edgeHeaders() {
+  const { data } = await supabase.auth.getSession();
+  const token = data.session?.access_token ?? '';
+  return { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` };
+}
 
 const MARKUPS = { data: 50, cable: 100, electricity: 150, education: 200 };
 
@@ -128,126 +136,33 @@ export default function AdminPlans() {
   });
 
   const handleSync = async () => {
-    const { data: settings } = await supabase.from("system_settings").select("cheapdatahub_api_key").maybeSingle();
-    if (!settings?.cheapdatahub_api_key) {
-      toast({ title: "API Key Missing", description: "Save your CheapDataHub API key in Settings first.", variant: "destructive" });
-      return;
-    }
     setSyncing(true);
     try {
-      const apiKey = settings.cheapdatahub_api_key;
-      const tab = SERVICE_TABS.find(t => t.key === activeTab)!;
-      const markup = MARKUPS[activeTab as keyof typeof MARKUPS];
-      let imported = 0;
+      const res = await fetch(`${EDGE_BASE}/sync-plans`, {
+        method: 'POST',
+        headers: await edgeHeaders(),
+        body: JSON.stringify({ service_type: activeTab }),
+      });
+      const result = await res.json() as any;
 
-      if (activeTab === "data") {
-        const providerMap: Record<string, number> = { MTN: 1, AIRTEL: 2, GLO: 3, "9MOBILE": 4 };
-        for (const network of tab.networks) {
-          const pid = providerMap[network];
-          const endpoints = [
-            `https://www.cheapdatahub.ng/api/v1/resellers/data/plans/${pid}/`,
-            `https://www.cheapdatahub.ng/api/v1/resellers/data/plans/?provider_id=${pid}`,
-            `https://www.cheapdatahub.ng/api/v1/data/plans/${pid}/`,
-          ];
-          for (const url of endpoints) {
-            try {
-              const r = await fetch(url, { headers: { Authorization: `Bearer ${apiKey}` } });
-              if (!r.ok) continue;
-              const body = await r.json() as any;
-              const planList: any[] = Array.isArray(body) ? body : (body.data ?? body.plans ?? body.results ?? []);
-              if (!planList.length) continue;
-              for (const p of planList) {
-                const wholesale = Number(p.price ?? p.amount ?? p.cost ?? 0);
-                if (!wholesale) continue;
-                await supabase.from("data_plans").upsert({
-                  network,
-                  plan_name: p.name ?? p.plan_name ?? p.description ?? `${network} Plan`,
-                  data_size: p.data_size ?? p.size ?? p.volume ?? "",
-                  retail_price: wholesale + markup,
-                  wholesale_price: wholesale,
-                  plan_id: `${network.toLowerCase()}-cdh-${p.id ?? p.plan_id ?? Date.now()}`,
-                  validity: p.validity ?? p.duration ?? "",
-                  is_active: true,
-                  service_type: "data",
-                  cheapdatahub_plan_id: String(p.id ?? p.plan_id ?? ""),
-                }, { onConflict: "plan_id" });
-                imported++;
-              }
-              break;
-            } catch { continue; }
-          }
-        }
-      } else if (activeTab === "cable") {
-        const endpoints = [
-          "https://www.cheapdatahub.ng/api/v1/resellers/cable/plans/",
-          "https://www.cheapdatahub.ng/api/v1/cable/plans/",
-        ];
-        for (const url of endpoints) {
-          try {
-            const r = await fetch(url, { headers: { Authorization: `Bearer ${apiKey}` } });
-            if (!r.ok) continue;
-            const body = await r.json() as any;
-            const planList: any[] = Array.isArray(body) ? body : (body.data ?? body.plans ?? []);
-            for (const p of planList) {
-              const wholesale = Number(p.price ?? p.amount ?? 0);
-              const network = (p.provider ?? p.network ?? "DSTV").toUpperCase();
-              if (!wholesale) continue;
-              await supabase.from("data_plans").upsert({
-                network,
-                plan_name: p.name ?? p.plan_name ?? "",
-                data_size: "",
-                retail_price: wholesale + markup,
-                wholesale_price: wholesale,
-                plan_id: `cable-${network.toLowerCase()}-${p.id ?? Date.now()}`,
-                validity: p.validity ?? "Monthly",
-                is_active: true,
-                service_type: "cable",
-                cheapdatahub_plan_id: String(p.id ?? ""),
-              }, { onConflict: "plan_id" });
-              imported++;
-            }
-            if (imported > 0) break;
-          } catch { continue; }
-        }
-      } else if (activeTab === "education") {
-        const endpoints = [
-          "https://www.cheapdatahub.ng/api/v1/resellers/education/plans/",
-          "https://www.cheapdatahub.ng/api/v1/education/plans/",
-        ];
-        for (const url of endpoints) {
-          try {
-            const r = await fetch(url, { headers: { Authorization: `Bearer ${apiKey}` } });
-            if (!r.ok) continue;
-            const body = await r.json() as any;
-            const planList: any[] = Array.isArray(body) ? body : (body.data ?? body.plans ?? []);
-            for (const p of planList) {
-              const wholesale = Number(p.price ?? p.amount ?? 0);
-              const network = (p.provider ?? p.name ?? "WAEC").toUpperCase();
-              if (!wholesale) continue;
-              await supabase.from("data_plans").upsert({
-                network,
-                plan_name: p.name ?? p.plan_name ?? `${network} Result Checker`,
-                data_size: "",
-                retail_price: wholesale + markup,
-                wholesale_price: wholesale,
-                plan_id: `edu-${network.toLowerCase()}-${p.id ?? Date.now()}`,
-                validity: "",
-                is_active: true,
-                service_type: "education",
-                cheapdatahub_plan_id: String(p.id ?? ""),
-              }, { onConflict: "plan_id" });
-              imported++;
-            }
-            if (imported > 0) break;
-          } catch { continue; }
-        }
+      if (!res.ok) {
+        toast({ title: "Sync Failed", description: result.error ?? "Unknown error", variant: "destructive" });
+        return;
       }
 
       queryClient.invalidateQueries({ queryKey: ["admin-plans"] });
-      if (imported > 0) {
-        toast({ title: `Synced ${imported} plans`, description: `Plans imported with +₦${markup} markup applied.` });
+
+      if (result.imported > 0) {
+        toast({
+          title: `✓ Synced ${result.imported} plans`,
+          description: result.message + (result.warnings?.length ? ` (${result.warnings.join('; ')})` : ''),
+        });
       } else {
-        toast({ title: "No Plans Found", description: "CheapDataHub API didn't return plans. Add them manually below, or check your API key.", variant: "destructive" });
+        toast({
+          title: "No Plans Imported",
+          description: result.message ?? "CheapDataHub returned no plans. Check your API key and account status.",
+          variant: "destructive",
+        });
       }
     } catch (e: any) {
       toast({ title: "Sync Failed", description: e.message, variant: "destructive" });
