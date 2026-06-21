@@ -235,33 +235,12 @@ export function useAdminGetUsers(options?: any) {
   });
 }
 
-async function safeApiJson<T>(r: Response): Promise<T> {
-  const ct = r.headers.get('content-type') ?? '';
-  if (!ct.includes('application/json')) {
-    const text = await r.text().catch(() => '');
-    throw new Error(
-      `API returned ${r.status} (not JSON). ` +
-      (text.slice(0, 200) || 'Empty body') +
-      ' — check that the API server is running and /api is reachable.'
-    );
-  }
-  return r.json() as Promise<T>;
-}
-
 export function useAdminGetSettings(options?: any) {
   return useQuery({
     queryKey: options?.query?.queryKey ?? getAdminGetSettingsQueryKey(),
     queryFn: async () => {
-      const { data: session } = await supabase.auth.getSession();
-      const token = session.session?.access_token ?? '';
-      const r = await fetch('/api/admin/settings', {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!r.ok) {
-        const err = await safeApiJson<{ error?: string }>(r);
-        throw new Error(err.error ?? 'Failed to load settings');
-      }
-      const data = await safeApiJson<Record<string, unknown>>(r);
+      const { data, error } = await supabase.from('system_settings').select('*').maybeSingle();
+      if (error) throw error;
       return data ?? { active_payment_gateway: 'paystack', cheapdatahub_funding_account: '' };
     },
   });
@@ -271,17 +250,41 @@ export function useAdminUpdateSettings() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async ({ data }: { data: any }) => {
-      const { data: session } = await supabase.auth.getSession();
-      const token = session.session?.access_token ?? '';
-      const r = await fetch('/api/admin/settings', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify(data),
-      });
-      const body = await safeApiJson<{ success?: boolean; error?: string }>(r);
-      if (!r.ok || body.error) throw new Error(body.error ?? 'Failed to save settings');
+      const payload: Record<string, any> = {
+        admin_email: data.admin_email,
+        active_payment_gateway: data.active_payment_gateway,
+        cheapdatahub_funding_account: data.cheapdatahub_funding_account,
+        cheapdatahub_base_url: data.cheapdatahub_base_url,
+        brevo_sender_email: data.brevo_sender_email,
+        brevo_sender_name: data.brevo_sender_name,
+        cheapdatahub_bank_name: data.cheapdatahub_bank_name ?? '',
+        cheapdatahub_bank_code: data.cheapdatahub_bank_code ?? '',
+        cheapdatahub_bank_account: data.cheapdatahub_bank_account ?? '',
+        cheapdatahub_account_name: data.cheapdatahub_account_name ?? '',
+        cheapdatahub_low_balance_threshold: Number(data.cheapdatahub_low_balance_threshold ?? 5000),
+        cheapdatahub_topup_amount: Number(data.cheapdatahub_topup_amount ?? 20000),
+        cheapdatahub_auto_fund: Boolean(data.cheapdatahub_auto_fund),
+        smtp_host: data.smtp_host || 'smtp-relay.brevo.com',
+        smtp_port: Number(data.smtp_port ?? 587),
+      };
+      if ((data.paystack_secret_key as string)?.trim()) payload.paystack_secret_key = (data.paystack_secret_key as string).trim();
+      if ((data.paystack_public_key as string)?.trim()) payload.paystack_public_key = (data.paystack_public_key as string).trim();
+      if ((data.flutterwave_secret_key as string)?.trim()) payload.flutterwave_secret_key = (data.flutterwave_secret_key as string).trim();
+      if ((data.flutterwave_public_key as string)?.trim()) payload.flutterwave_public_key = (data.flutterwave_public_key as string).trim();
+      if ((data.cheapdatahub_api_key as string)?.trim()) payload.cheapdatahub_api_key = (data.cheapdatahub_api_key as string).trim();
+      if ((data.smtp_user as string)?.trim()) payload.smtp_user = (data.smtp_user as string).trim();
+      if ((data.smtp_pass as string)?.trim()) payload.smtp_pass = (data.smtp_pass as string).trim();
+
+      const { data: existing } = await supabase.from('system_settings').select('id').maybeSingle();
+      let error;
+      if (existing) {
+        ({ error } = await supabase.from('system_settings').update(payload).eq('id', existing.id));
+      } else {
+        ({ error } = await supabase.from('system_settings').insert(payload));
+      }
+      if (error) throw error;
       queryClient.invalidateQueries({ queryKey: getAdminGetSettingsQueryKey() });
-      return body;
+      return { success: true, message: 'Settings updated.' };
     },
   });
 }
@@ -299,16 +302,14 @@ export function useAdminTestPaystack() {
   });
 }
 
-// ── Admin: Test SMTP (Brevo) ──────────────────────────────────────────────────
-// Routes through the API server — SMTP credentials never seen by the browser.
+// ── Admin: Test SMTP ──────────────────────────────────────────────────────────
+// Routes through Supabase Edge Function — SMTP credentials never seen by the browser.
 export function useAdminTestBrevo() {
   return useMutation({
     mutationFn: async () => {
-      const { data: session } = await supabase.auth.getSession();
-      const token = session.session?.access_token ?? '';
-      const r = await fetch('/api/admin/test-brevo', {
+      const r = await fetch(`${EDGE_BASE}/test-brevo`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        headers: await authHeaders(),
       });
       const body = await r.json() as { ok?: boolean; message?: string; error?: string };
       if (!r.ok || body.error) throw new Error(body.error ?? 'SMTP test failed.');

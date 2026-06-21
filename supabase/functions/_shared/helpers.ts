@@ -132,9 +132,16 @@ export async function sendReceipt(
       getSettings(supabaseAdmin),
       getUserProfile(supabaseAdmin, userId),
     ]);
-    if (!settings?.brevo_api_key || !settings?.brevo_sender_email || !profile?.email) return;
 
-    const senderName = settings.brevo_sender_name || 'CheapDataHub';
+    const smtpUser = (settings as any)?.smtp_user?.trim();
+    const smtpPass = (settings as any)?.smtp_pass?.trim();
+    const senderEmail = (settings?.brevo_sender_email as string | null)?.trim() || smtpUser;
+
+    if (!smtpUser || !smtpPass || !senderEmail || !profile?.email) return;
+
+    const smtpHost = (settings as any)?.smtp_host?.trim() || 'smtp-relay.brevo.com';
+    const smtpPort = Number((settings as any)?.smtp_port) || 587;
+    const senderName = (settings?.brevo_sender_name as string | null) || 'CheapDataHub';
     const statusOk = status === 'successful';
     const statusColor = statusOk ? '#16a34a' : '#dc2626';
     const statusBg = statusOk ? '#dcfce7' : '#fee2e2';
@@ -165,15 +172,18 @@ export async function sendReceipt(
 <p style="margin:20px 0 0;font-size:12px;color:#9ca3af;text-align:center;">&copy; ${year} ${senderName}</p>
 </td></tr></table></td></tr></table></body></html>`;
 
-    await fetch('https://api.brevo.com/v3/smtp/email', {
-      method: 'POST',
-      headers: { 'api-key': settings.brevo_api_key, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        sender: { name: senderName, email: settings.brevo_sender_email },
-        to: [{ email: profile.email, name: profile.full_name || 'Customer' }],
-        subject: `Transaction ${statusOk ? 'Successful' : 'Failed'}: ${description}`,
-        htmlContent: html,
-      }),
+    const { default: nodemailer } = await import('npm:nodemailer@6');
+    const transporter = nodemailer.createTransport({
+      host: smtpHost,
+      port: smtpPort,
+      secure: false,
+      auth: { user: smtpUser, pass: smtpPass },
+    });
+    await transporter.sendMail({
+      from: `"${senderName}" <${senderEmail}>`,
+      to: profile.email,
+      subject: `Transaction ${statusOk ? 'Successful' : 'Failed'}: ${description}`,
+      html,
     });
   } catch { /* non-fatal */ }
 }
