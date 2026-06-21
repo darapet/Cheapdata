@@ -30,7 +30,7 @@ export default function Register() {
 
   const onSubmit = async (data: FormData) => {
     setLoading(true);
-    const { error } = await supabase.auth.signUp({
+    const { data: authData, error } = await supabase.auth.signUp({
       email: data.email,
       password: data.password,
       options: {
@@ -41,17 +41,32 @@ export default function Register() {
 
     if (error) {
       toast({ title: "Registration failed", description: error.message, variant: "destructive" });
-    } else {
-      // Send welcome email (fire-and-forget — never blocks or fails signup)
-      void fetch(`${import.meta.env.BASE_URL}api/auth/welcome`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: data.email, full_name: data.full_name }),
-      }).catch(() => {/* ignore */});
-
-      toast({ title: "Account created!", description: "Welcome to CheapDataHub." });
-      setLocation("/dashboard");
+      return;
     }
+
+    // Explicitly create the profile row so PIN setup, wallet, and OTP work immediately.
+    // This is a safety net — the DB trigger does the same thing, but belt-and-suspenders.
+    if (authData.user) {
+      await supabase.from("profiles").upsert(
+        {
+          id: authData.user.id,
+          email: data.email,
+          full_name: data.full_name,
+          phone: data.phone,
+        },
+        { onConflict: "id" }
+      );
+    }
+
+    // Send welcome email (fire-and-forget — never blocks or fails signup)
+    void fetch(`${import.meta.env.BASE_URL}api/auth/welcome`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: data.email, full_name: data.full_name }),
+    }).catch(() => {});
+
+    toast({ title: "Account created!", description: "Welcome to CheapDataHub." });
+    setLocation("/dashboard");
   };
 
   return (
