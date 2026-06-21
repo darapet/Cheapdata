@@ -4,7 +4,6 @@ import { sendTransactionEmail } from './email';
 
 async function hashPin(pin: string): Promise<string> {
   const encoder = new TextEncoder();
-  // Must match server-side salt: pin + "cheapdatahub_salt"
   const data = encoder.encode(pin + 'cheapdatahub_salt');
   const hash = await crypto.subtle.digest('SHA-256', data);
   return Array.from(new Uint8Array(hash)).map((b) => b.toString(16).padStart(2, '0')).join('');
@@ -121,12 +120,35 @@ async function deductAndRecord(userId: string, balance: number, amount: number, 
   }
 }
 
-// ── API helpers for Express backend ───────────────────────────────────────────
-// Edge function base — always available since VITE_SUPABASE_URL is required for the app to work
+// ── API helpers ───────────────────────────────────────────────────────────────
+// EDGE_BASE: Supabase Edge Functions (for buy-data, buy-airtime, etc.)
 const EDGE_BASE = (import.meta.env.VITE_SUPABASE_URL ?? '').replace(/\/$/, '') + '/functions/v1';
+
+// API_BASE: Express backend — set VITE_API_BASE_URL in your GitHub Actions secrets
+// e.g. https://your-app.replit.app  (no trailing slash)
+const API_BASE = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '');
+
 async function authHeaders() {
   const { data } = await supabase.auth.getSession();
   return { 'Content-Type': 'application/json', Authorization: `Bearer ${data.session?.access_token ?? ''}` };
+}
+
+async function apiPost(path: string, body?: unknown) {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: 'POST',
+    headers: await authHeaders(),
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+  });
+  const json = await res.json() as Record<string, unknown>;
+  if (!res.ok) throw new Error((json.error as string) ?? `Request failed: ${res.status}`);
+  return json;
+}
+
+async function apiGet(path: string) {
+  const res = await fetch(`${API_BASE}${path}`, { headers: await authHeaders() });
+  const json = await res.json() as Record<string, unknown>;
+  if (!res.ok) throw new Error((json.error as string) ?? `Request failed: ${res.status}`);
+  return json;
 }
 
 // ── Service hooks — routed through Supabase Edge Functions ───────────────────
@@ -263,7 +285,6 @@ export function useAdminUpdateSettings() {
         cheapdatahub_base_url: data.cheapdatahub_base_url,
         brevo_sender_email: data.brevo_sender_email,
         brevo_sender_name: data.brevo_sender_name,
-        // Auto-funding fields
         cheapdatahub_bank_name: data.cheapdatahub_bank_name ?? '',
         cheapdatahub_bank_code: data.cheapdatahub_bank_code ?? '',
         cheapdatahub_bank_account: data.cheapdatahub_bank_account ?? '',
@@ -293,124 +314,61 @@ export function useAdminUpdateSettings() {
 }
 
 // ── Admin: Test Paystack key ───────────────────────────────────────────────────
+// Calls the Express backend so the secret key never leaves the server.
 export function useAdminTestPaystack() {
-    return useMutation({
-      mutationFn: async () => {
-        const { data: s } = await supabase.from('system_settings').select('paystack_secret_key').maybeSingle();
-        const key = (s as any)?.paystack_secret_key?.trim();
-        if (!key) throw new Error('No Paystack secret key saved yet. Save your key first.');
-        const r = await fetch('https://api.paystack.co/transaction?perPage=1', {
-          headers: { Authorization: `Bearer ${key}` },
-        });
-        const body = await r.json() as { status: boolean; message: string };
-        if (body.status) return 'Paystack key is valid ✓';
-        throw new Error(`Paystack rejected the key: ${body.message}`);
-      },
-    });
-  }
+  return useMutation({
+    mutationFn: async () => {
+      const json = await apiPost('/api/admin/test-paystack');
+      return (json.message as string) ?? 'Paystack key is valid ✓';
+    },
+  });
+}
 
-  // ── Admin: Test Brevo ─────────────────────────────────────────────────────────
-  export function useAdminTestBrevo() {
-    return useMutation({
-      mutationFn: async () => {
-        const { data: s } = await supabase.from('system_settings').select('brevo_api_key,brevo_sender_email,brevo_sender_name,admin_email').maybeSingle();
-        const key = (s as any)?.brevo_api_key?.trim();
-        const senderEmail = (s as any)?.brevo_sender_email?.trim();
-        const senderName = (s as any)?.brevo_sender_name?.trim() || 'CheapDataHub';
-        const toEmail = (s as any)?.admin_email?.trim() || 'daramolapeter98@gmail.com';
-        if (!key) throw new Error('No Brevo API key saved yet. Save your key first.');
-        if (!senderEmail) throw new Error('Sender email not configured. Fill in the Sender Email field and save.');
-        const r = await fetch('https://api.brevo.com/v3/smtp/email', {
-          method: 'POST',
-          headers: { 'api-key': key, 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            sender: { name: senderName, email: senderEmail },
-            to: [{ email: toEmail, name: 'Admin' }],
-            subject: '✅ Brevo Test Email — CheapDataHub',
-            htmlContent: `<div style="font-family:sans-serif;padding:24px;max-width:480px;border:1px solid #e5e7eb;border-radius:8px"><h2 style="color:#4f46e5;margin-top:0">Brevo is working! ✓</h2><p>This is a test email from your CheapDataHub admin panel.</p><p style="color:#6b7280;font-size:13px"><strong>To:</strong> ${toEmail}<br/><strong>From:</strong> ${senderName} &lt;${senderEmail}&gt;</p></div>`,
-          }),
-        });
-        if (r.ok) return `Test email sent to ${toEmail}`;
-        const err = await r.json() as { message: string };
-        throw new Error(`Brevo error: ${err.message}`);
-      },
-    });
-  }
+// ── Admin: Test Brevo ─────────────────────────────────────────────────────────
+// Calls the Express backend so the API key never leaves the server.
+export function useAdminTestBrevo() {
+  return useMutation({
+    mutationFn: async () => {
+      const json = await apiPost('/api/admin/test-brevo');
+      return (json.message as string) ?? 'Test email sent';
+    },
+  });
+}
 
-  // ── Admin: Test Flutterwave key ───────────────────────────────────────────────
-  export function useAdminTestFlutterwave() {
-    return useMutation({
-      mutationFn: async () => {
-        const { data: s } = await supabase.from('system_settings').select('flutterwave_secret_key').maybeSingle();
-        const key = (s as any)?.flutterwave_secret_key?.trim();
-        if (!key) throw new Error('No Flutterwave secret key saved yet. Save your key first.');
-        const r = await fetch('https://api.flutterwave.com/v3/banks/NG', {
-          headers: { Authorization: `Bearer ${key}` },
-        });
-        const body = await r.json() as { status: string; message: string };
-        if (body.status === 'success') return 'Flutterwave key is valid ✓';
-        throw new Error(`Flutterwave rejected the key: ${body.message}`);
-      },
-    });
-  }
+// ── Admin: Test Flutterwave key ───────────────────────────────────────────────
+// Calls the Express backend so the secret key never leaves the server.
+export function useAdminTestFlutterwave() {
+  return useMutation({
+    mutationFn: async () => {
+      const json = await apiPost('/api/admin/test-flutterwave');
+      return (json.message as string) ?? 'Flutterwave key is valid ✓';
+    },
+  });
+}
 
-  // ── Admin: Test CheapDataHub API key (checks wallet balance) ─────────────────
-  export function useAdminTestCheapDataHub() {
-    return useMutation({
-      mutationFn: async () => {
-        const r = await fetch(`${EDGE_BASE}/test-cheapdatahub`, { headers: await authHeaders() });
-        const body = await r.json() as { ok?: boolean; balance?: unknown; message?: string; error?: string };
-        if (!r.ok || body.error) throw new Error(body.error ?? 'Could not reach CheapDataHub. Verify your API key.');
-        return body.message ?? `CheapDataHub key is valid ✓ — Wallet Balance: ₦${Number(body.balance).toLocaleString()}`;
-      },
-    });
-  }
+// ── Admin: Test CheapDataHub API key (checks wallet balance) ─────────────────
+// Calls the Express backend so the API key never leaves the server.
+export function useAdminTestCheapDataHub() {
+  return useMutation({
+    mutationFn: async () => {
+      const json = await apiGet('/api/admin/cheapdatahub-balance');
+      return (json.message as string) ?? `CheapDataHub key is valid ✓ — Wallet Balance: ₦${Number(json.balance).toLocaleString()}`;
+    },
+  });
+}
 
-  // ── Admin: Manual CheapDataHub top-up via Paystack transfer ──────────────────
-  export function useAdminTopupCheapDataHub() {
-    return useMutation({
-      mutationFn: async ({ amount }: { amount: number }) => {
-        const { data: s } = await supabase.from('system_settings').select('*').maybeSingle();
-        const settings = s as any;
-        if (!settings?.paystack_secret_key) throw new Error('Paystack secret key not configured.');
-        if (!settings?.cheapdatahub_bank_account || !settings?.cheapdatahub_bank_code) throw new Error('CheapDataHub bank details not configured. Add them in the Auto-Funding section.');
-        if (!amount || amount < 100) throw new Error('Minimum transfer amount is ₦100.');
-        let recipientCode = settings.cheapdatahub_paystack_recipient_code as string | null;
-        if (!recipientCode) {
-          const rRes = await fetch('https://api.paystack.co/transferrecipient', {
-            method: 'POST',
-            headers: { Authorization: `Bearer ${settings.paystack_secret_key}`, 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              type: 'nuban',
-              name: settings.cheapdatahub_account_name || 'CheapDataHub',
-              account_number: settings.cheapdatahub_bank_account,
-              bank_code: settings.cheapdatahub_bank_code,
-              currency: 'NGN',
-            }),
-          });
-          const rData = await rRes.json() as { status: boolean; data?: { recipient_code: string } };
-          if (!rData.status || !rData.data?.recipient_code) throw new Error('Failed to create transfer recipient. Check bank details.');
-          recipientCode = rData.data.recipient_code;
-          await supabase.from('system_settings').update({ cheapdatahub_paystack_recipient_code: recipientCode }).eq('id', settings.id);
-        }
-        const tRes = await fetch('https://api.paystack.co/transfer', {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${settings.paystack_secret_key}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            source: 'balance',
-            reason: 'CheapDataHub wallet top-up',
-            amount: Math.round(amount * 100),
-            recipient: recipientCode,
-          }),
-        });
-        const tData = await tRes.json() as { status: boolean; message: string; data?: { transfer_code: string; status: string } };
-        if (!tData.status) throw new Error(`Transfer failed: ${tData.message}`);
-        return `₦${amount.toLocaleString()} transfer to CheapDataHub initiated! Status: ${tData.data?.status ?? 'pending'}`;
-      },
-    });
-  }
+// ── Admin: Manual CheapDataHub top-up via Paystack transfer ──────────────────
+// Calls the Express backend so the Paystack secret key never leaves the server.
+export function useAdminTopupCheapDataHub() {
+  return useMutation({
+    mutationFn: async ({ amount }: { amount: number }) => {
+      const json = await apiPost('/api/admin/cheapdatahub-topup', { amount });
+      return (json.message as string) ?? `₦${amount.toLocaleString()} transfer initiated!`;
+    },
+  });
+}
 
-  // ── Buy Education (WAEC / NECO / JAMB / GCE result checker PINs) ──────────────
+// ── Buy Education (WAEC / NECO / JAMB / GCE result checker PINs) ──────────────
 export function useBuyEducation() {
   return useMutation({
     mutationFn: async ({ data }: { data: { exam_body: string; plan_id: string; quantity: number; pin: string } }) => {
