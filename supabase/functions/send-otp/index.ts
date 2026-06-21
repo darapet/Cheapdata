@@ -44,8 +44,22 @@ Deno.serve(async (req) => {
       const senderName  = (settings?.brevo_sender_name  as string | null) || 'CheapDataHub';
       const brevoKey    = (settings?.brevo_api_key       as string | null)?.trim();
 
-      if (senderEmail && brevoKey && profile?.email) {
-        const html = `<!DOCTYPE html><html><body style="margin:0;padding:0;background:#f3f4f6;font-family:Arial,sans-serif;">
+      // Log what we found so you can debug in Supabase → Edge Function logs
+      console.log('[send-otp] user.id:', user.id);
+      console.log('[send-otp] profile email:', profile?.email ?? 'MISSING');
+      console.log('[send-otp] senderEmail configured:', !!senderEmail);
+      console.log('[send-otp] brevoKey configured:', !!brevoKey);
+
+      // Guard: require all three — give a clear error instead of silent skip
+      if (!profile?.email) {
+        return jsonResponse({ success: false, message: 'Your account email could not be found. Please contact support.' }, 400);
+      }
+      if (!senderEmail || !brevoKey) {
+        console.error('[send-otp] Email not configured — missing brevo_api_key or brevo_sender_email in system_settings');
+        return jsonResponse({ success: false, message: 'Email service is not configured. Please contact the admin.' }, 500);
+      }
+
+      const html = `<!DOCTYPE html><html><body style="margin:0;padding:0;background:#f3f4f6;font-family:Arial,sans-serif;">
 <table width="100%" cellpadding="0" cellspacing="0" style="padding:40px 0;background:#f3f4f6;">
 <tr><td align="center"><table width="520" cellpadding="0" cellspacing="0" style="background:#fff;border-radius:12px;overflow:hidden;">
 <tr><td style="background:linear-gradient(135deg,#7c3aed,#6d28d9);padding:28px;text-align:center;">
@@ -60,18 +74,24 @@ Deno.serve(async (req) => {
 <p style="margin:0;font-size:12px;color:#9ca3af;text-align:center;">If you did not request this, ignore this email.</p>
 </td></tr></table></td></tr></table></body></html>`;
 
-        await fetch('https://api.brevo.com/v3/smtp/email', {
-          method: 'POST',
-          headers: { 'api-key': brevoKey, 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            sender: { name: senderName, email: senderEmail },
-            to: [{ email: profile.email, name: profile.full_name || 'Customer' }],
-            subject: `${otp} — Your ${senderName} PIN Reset Code`,
-            htmlContent: html,
-          }),
-        });
+      const brevoRes = await fetch('https://api.brevo.com/v3/smtp/email', {
+        method: 'POST',
+        headers: { 'api-key': brevoKey, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sender: { name: senderName, email: senderEmail },
+          to: [{ email: profile.email, name: profile.full_name || 'Customer' }],
+          subject: `${otp} — Your ${senderName} PIN Reset Code`,
+          htmlContent: html,
+        }),
+      });
+
+      if (!brevoRes.ok) {
+        const errBody = await brevoRes.text();
+        console.error('[send-otp] Brevo API error:', brevoRes.status, errBody);
+        return jsonResponse({ success: false, message: `Failed to send email (Brevo error ${brevoRes.status}). Please try again or contact support.` }, 500);
       }
 
+      console.log('[send-otp] Email sent successfully to:', profile.email);
       return jsonResponse({ success: true, token: otpToken, message: 'OTP sent to your email' });
     }
 
@@ -98,7 +118,6 @@ Deno.serve(async (req) => {
         return jsonResponse({ success: false, message: 'Incorrect code. Please check and try again.' }, 400);
       }
 
-      // Update ONLY transaction_pin — no otp_code columns needed
       const hashed = await hashPin(new_pin);
       const { error } = await supabaseAdmin
         .from('profiles')
@@ -106,7 +125,7 @@ Deno.serve(async (req) => {
         .eq('id', user.id);
 
       if (error) {
-        console.error('PIN update error:', error);
+        console.error('[send-otp] PIN update error:', error);
         return jsonResponse({ success: false, message: 'Failed to save PIN. Please try again.' }, 500);
       }
 
@@ -116,7 +135,7 @@ Deno.serve(async (req) => {
     return jsonResponse({ success: false, message: 'Unknown action' }, 400);
 
   } catch (err) {
-    console.error('send-otp error', err);
+    console.error('[send-otp] Unexpected error:', err);
     return jsonResponse({ success: false, message: 'Server error. Please try again.' }, 500);
   }
 });
