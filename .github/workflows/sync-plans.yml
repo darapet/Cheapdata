@@ -1,4 +1,4 @@
-name: Sync CheapDataHub Plans (Hourly)
+name: Sync All CheapDataHub Plans (Hourly)
 
 on:
   schedule:
@@ -9,16 +9,18 @@ jobs:
   sync:
     runs-on: ubuntu-latest
     steps:
-      - name: Sync plans from CheapDataHub
+      - name: Sync all plans from CheapDataHub
         env:
           SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          CDH_API_KEY: ${{ secrets.CDH_API_KEY }}
         run: |
           node - <<'EOF'
           const https = require('https');
           const { URL } = require('url');
 
-          async function fetch(url, opts = {}) {
+          // ── Minimal fetch polyfill for Node built-ins ─────────────────────
+          async function fetchUrl(url, opts = {}) {
             return new Promise((resolve, reject) => {
               const parsed = new URL(url);
               const options = {
@@ -30,7 +32,14 @@ jobs:
               const req = https.request(options, res => {
                 let data = '';
                 res.on('data', c => data += c);
-                res.on('end', () => resolve({ ok: res.statusCode < 300, status: res.statusCode, text: () => Promise.resolve(data), json: () => Promise.resolve(JSON.parse(data)) }));
+                res.on('end', () => {
+                  resolve({
+                    ok: res.statusCode >= 200 && res.statusCode < 300,
+                    status: res.statusCode,
+                    text: () => Promise.resolve(data),
+                    json: () => Promise.resolve(JSON.parse(data)),
+                  });
+                });
               });
               req.on('error', reject);
               if (opts.body) req.write(opts.body);
@@ -39,97 +48,174 @@ jobs:
           }
 
           const SUPABASE_URL = process.env.SUPABASE_URL;
-          const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
-          const MARKUP = 50;
+          const SERVICE_KEY  = process.env.SUPABASE_SERVICE_ROLE_KEY;
+          const CDH_KEY      = process.env.CDH_API_KEY;
+          const MARKUP_DATA  = 50;
+          const MARKUP_CABLE = 50;
+          const MARKUP_EDU   = 200;
 
           if (!SUPABASE_URL || !SERVICE_KEY) {
-            console.error('Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY secret');
+            console.error('❌ Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY secret');
             process.exit(1);
           }
 
-          async function scrapePlans() {
-            const res = await fetch('https://www.cheapdatahub.ng/api/plan-ids/', {
-              headers: { 'User-Agent': 'Mozilla/5.0 (compatible; CheapDataHub-sync/1.0)' }
+          // ── Helpers ────────────────────────────────────────────────────────
+          function extractSize(name) {
+            const m = name.match(/(\d+(?:\.\d+)?)\s*(GB|MB|TB)/i);
+            return m ? `${m[1]}${m[2].toUpperCase()}` : 'N/A';
+          }
+          function extractValidity(name) {
+            const m = name.match(/\(([^)]+)\)/);
+            return m ? m[1] : '30 Days';
+          }
+
+          // ── 1. Scrape Data + Cable TV plans from plan-ids page ─────────────
+          async function scrapeDataAndCable() {
+            console.log('📡 Fetching plan-ids page...');
+            const res = await fetchUrl('https://www.cheapdatahub.ng/api/plan-ids/', {
+              headers: { 'User-Agent': 'Mozilla/5.0 (compatible; CheapDataHub-sync/2.0)' }
             });
             const html = await res.text();
-
-            // Strip tags to plain text
             const text = html
               .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
               .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
               .replace(/<[^>]+>/g, ' ')
               .replace(/\s+/g, ' ');
 
-            // Parse: NETWORK ServiceType Plan Name  ID  Price  Copy
-            const planRegex = /(MTN|AIRTEL|GLO|DSTV|GOTV|STARTIMES)\s+(Data|Cable TV)\s+([^0-9]+?)\s+(\d+)\s+([\d.]+)\s+Copy/gi;
             const plans = [];
+            // Match: NETWORK  Data/Cable TV  Plan Name  ID  Price  Copy
+            const re = /(MTN|AIRTEL|GLO|DSTV|GOTV|STARTIMES)\s+(Data|Cable TV)\s+([^0-9]{3,60?}?)\s+(\d+)\s+([\d.]+)\s+Copy/gi;
             let match;
-            while ((match = planRegex.exec(text)) !== null) {
-              const [, network, serviceRaw, name, id, price] = match;
-              const service = serviceRaw.trim().toLowerCase() === 'cable tv' ? 'cable' : 'data';
+            while ((match = re.exec(text)) !== null) {
+              const [, network, svcRaw, rawName, id, price] = match;
+              const svc = svcRaw.trim().toLowerCase() === 'cable tv' ? 'cable' : 'data';
+              const name = rawName.trim();
+              const wholesale = parseFloat(price);
+              const markup = svc === 'cable' ? MARKUP_CABLE : MARKUP_DATA;
               plans.push({
                 network: network.toUpperCase(),
-                plan_name: `${network} ${name.trim()}`,
-                data_size: service === 'data' ? extractSize(name) : 'N/A',
-                wholesale_price: parseFloat(price),
-                retail_price: parseFloat(price) + MARKUP,
+                plan_name: `${network} ${name}`,
+                data_size: svc === 'data' ? extractSize(name) : 'N/A',
+                wholesale_price: wholesale,
+                retail_price: wholesale + markup,
                 plan_id: `cdh-${network.toLowerCase()}-${id}`,
                 cheapdatahub_plan_id: id,
                 validity: extractValidity(name),
                 is_active: true,
-                service_type: service,
+                service_type: svc,
               });
             }
+            console.log(`  ↳ Scraped ${plans.length} data/cable plans`);
             return plans;
           }
 
-          function extractSize(name) {
-            const m = name.match(/(\d+(?:\.\d+)?)\s*(GB|MB|TB)/i);
-            return m ? `${m[1]}${m[2].toUpperCase()}` : 'N/A';
+          // ── 2. Fetch Education plans from CDH API ──────────────────────────
+          async function fetchEducationPlans() {
+            if (!CDH_KEY) {
+              console.log('⚠️  CDH_API_KEY not set — fetching from Supabase system_settings');
+              // Fall back: read from Supabase
+              const r = await fetchUrl(`${SUPABASE_URL}/rest/v1/system_settings?select=cheapdatahub_api_key`, {
+                headers: { apikey: SERVICE_KEY, Authorization: `Bearer ${SERVICE_KEY}` }
+              });
+              const d = await r.json();
+              const key = d?.[0]?.cheapdatahub_api_key;
+              if (!key) { console.log('  ↳ No CDH key found, skipping education sync'); return []; }
+              return fetchEduWithKey(key);
+            }
+            return fetchEduWithKey(CDH_KEY);
           }
 
-          function extractValidity(name) {
-            const m = name.match(/\(([^)]+)\)/);
-            return m ? m[1] : '30 Days';
+          async function fetchEduWithKey(key) {
+            console.log('📡 Fetching exam-pin products...');
+            try {
+              const r = await fetchUrl('https://www.cheapdatahub.ng/api/v1/resellers/exam-pin/products/', {
+                headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' }
+              });
+              if (!r.ok) { console.log(`  ↳ Exam API returned ${r.status}`); return []; }
+              const d = await r.json();
+              if (!d?.data?.length) { console.log('  ↳ No exam products returned'); return []; }
+              const plans = d.data
+                .filter(p => p.is_active)
+                .map(p => ({
+                  network: 'EDUCATION',
+                  plan_name: `${p.exam_name} Result Checker PIN`,
+                  data_size: '1 PIN',
+                  wholesale_price: p.api_price ?? p.reseller_price,
+                  retail_price: (p.api_price ?? p.reseller_price) + MARKUP_EDU,
+                  plan_id: `cdh-edu-${p.id}`,
+                  cheapdatahub_plan_id: String(p.id),
+                  validity: 'Once',
+                  is_active: true,
+                  service_type: 'education',
+                }));
+              console.log(`  ↳ Fetched ${plans.length} education plans: ${plans.map(p => p.plan_name).join(', ')}`);
+              return plans;
+            } catch (e) {
+              console.log('  ↳ Exam fetch error:', e.message);
+              return [];
+            }
           }
 
+          // ── 3. Upsert all plans into Supabase ──────────────────────────────
           async function upsertPlans(plans) {
-            if (!plans.length) { console.log('No plans parsed'); return; }
+            if (!plans.length) { console.log('No plans to upsert'); return 0; }
             const headers = {
-              'apikey': SERVICE_KEY,
-              'Authorization': `Bearer ${SERVICE_KEY}`,
+              apikey: SERVICE_KEY,
+              Authorization: `Bearer ${SERVICE_KEY}`,
               'Content-Type': 'application/json',
-              'Prefer': 'resolution=merge-duplicates,return=minimal',
+              Prefer: 'resolution=merge-duplicates,return=minimal',
             };
-            // Upsert in batches of 20
-            for (let i = 0; i < plans.length; i += 20) {
-              const batch = plans.slice(i, i + 20);
-              const res = await fetch(`${SUPABASE_URL}/rest/v1/data_plans`, {
+            let upserted = 0;
+            for (let i = 0; i < plans.length; i += 25) {
+              const batch = plans.slice(i, i + 25);
+              const r = await fetchUrl(`${SUPABASE_URL}/rest/v1/data_plans`, {
                 method: 'POST',
                 headers,
                 body: JSON.stringify(batch),
               });
-              if (!res.ok) {
-                const err = await res.text();
-                console.error(`Batch ${Math.floor(i/20)+1} error:`, err.slice(0, 200));
-              } else {
-                console.log(`Batch ${Math.floor(i/20)+1}: upserted ${batch.length} plans`);
+              if (r.ok) { upserted += batch.length; }
+              else {
+                const err = await r.text();
+                console.error(`  ↳ Batch error (${i}–${i + batch.length}):`, err.slice(0, 200));
               }
             }
+            return upserted;
+          }
 
-            // Update sync timestamp in system_settings
-            await fetch(`${SUPABASE_URL}/rest/v1/system_settings?id=eq.1`, {
+          // ── 4. Update sync timestamp ───────────────────────────────────────
+          async function updateSyncMeta(total) {
+            await fetchUrl(`${SUPABASE_URL}/rest/v1/system_settings?id=eq.1`, {
               method: 'PATCH',
-              headers,
-              body: JSON.stringify({ last_auto_sync_at: new Date().toISOString(), last_auto_sync_result: `OK: ${plans.length} plans synced` }),
+              headers: {
+                apikey: SERVICE_KEY,
+                Authorization: `Bearer ${SERVICE_KEY}`,
+                'Content-Type': 'application/json',
+                Prefer: 'resolution=merge-duplicates',
+              },
+              body: JSON.stringify({
+                last_auto_sync_at: new Date().toISOString(),
+                last_auto_sync_result: `OK: ${total} plans synced (data + cable + education)`,
+              }),
             });
           }
 
-          scrapePlans()
-            .then(plans => {
-              console.log(`Scraped ${plans.length} plans from CheapDataHub`);
-              return upsertPlans(plans);
-            })
-            .then(() => console.log('Sync complete!'))
-            .catch(err => { console.error('Sync failed:', err.message); process.exit(1); });
+          // ── Main ───────────────────────────────────────────────────────────
+          async function main() {
+            const [dataAndCable, education] = await Promise.all([
+              scrapeDataAndCable(),
+              fetchEducationPlans(),
+            ]);
+
+            const allPlans = [...dataAndCable, ...education];
+            console.log(`\n📦 Total plans to sync: ${allPlans.length}`);
+            console.log(`   Data plans:      ${dataAndCable.filter(p => p.service_type === 'data').length}`);
+            console.log(`   Cable TV plans:  ${dataAndCable.filter(p => p.service_type === 'cable').length}`);
+            console.log(`   Education plans: ${education.length}`);
+
+            const upserted = await upsertPlans(allPlans);
+            await updateSyncMeta(upserted);
+            console.log(`\n✅ Sync complete! ${upserted} plans upserted into Supabase.`);
+          }
+
+          main().catch(err => { console.error('❌ Sync failed:', err.message); process.exit(1); });
           EOF
