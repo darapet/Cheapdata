@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import {
   useAdminGetSettings, useAdminUpdateSettings, getAdminGetSettingsQueryKey,
+  useAdminTestPaystack, useAdminTestFlutterwave, useAdminTestBrevo,
+  useAdminTestCheapDataHub, useAdminTopupCheapDataHub,
 } from "@/lib/supabase-hooks";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,7 +12,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
-import { Loader2, Eye, EyeOff, CheckCircle, XCircle, FlaskConical } from "lucide-react";
+import { Loader2, Eye, EyeOff, CheckCircle, XCircle, FlaskConical, Info, Zap } from "lucide-react";
 
 function SecretInput({
   id, label, placeholder, registration, hasSavedValue,
@@ -74,6 +76,13 @@ type SettingsForm = {
   brevo_api_key: string;
   brevo_sender_email: string;
   brevo_sender_name: string;
+  cheapdatahub_bank_name: string;
+  cheapdatahub_bank_code: string;
+  cheapdatahub_bank_account: string;
+  cheapdatahub_account_name: string;
+  cheapdatahub_low_balance_threshold: number;
+  cheapdatahub_topup_amount: number;
+  cheapdatahub_auto_fund: boolean;
 };
 
 export default function AdminSettings() {
@@ -82,14 +91,19 @@ export default function AdminSettings() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
+  const testPaystack = useAdminTestPaystack();
+  const testFlutterwave = useAdminTestFlutterwave();
+  const testBrevo = useAdminTestBrevo();
+  const testCheapDataHub = useAdminTestCheapDataHub();
+  const topupCheapDataHub = useAdminTopupCheapDataHub();
+
   const [paystackResult, setPaystackResult] = useState<{ ok: boolean; message: string } | null>(null);
   const [flutterwaveResult, setFlutterwaveResult] = useState<{ ok: boolean; message: string } | null>(null);
   const [brevoResult, setBrevoResult] = useState<{ ok: boolean; message: string } | null>(null);
-  const [paystackTesting, setPaystackTesting] = useState(false);
-  const [flutterwaveTesting, setFlutterwaveTesting] = useState(false);
-  const [brevoTesting, setBrevoTesting] = useState(false);
+  const [cheapdatahubResult, setCheapdatahubResult] = useState<{ ok: boolean; message: string } | null>(null);
+  const [topupAmount, setTopupAmount] = useState(5000);
 
-  const { register, handleSubmit, reset } = useForm<SettingsForm>({
+  const { register, handleSubmit, reset, watch } = useForm<SettingsForm>({
     defaultValues: {
       active_payment_gateway: "paystack",
       admin_email: "",
@@ -103,8 +117,17 @@ export default function AdminSettings() {
       brevo_api_key: "",
       brevo_sender_email: "",
       brevo_sender_name: "CheapDataHub",
+      cheapdatahub_bank_name: "",
+      cheapdatahub_bank_code: "",
+      cheapdatahub_bank_account: "",
+      cheapdatahub_account_name: "",
+      cheapdatahub_low_balance_threshold: 5000,
+      cheapdatahub_topup_amount: 20000,
+      cheapdatahub_auto_fund: false,
     },
   });
+
+  const autoFundEnabled = watch("cheapdatahub_auto_fund");
 
   useEffect(() => {
     if (settings) {
@@ -121,6 +144,13 @@ export default function AdminSettings() {
         brevo_api_key: settings.brevo_api_key ?? "",
         brevo_sender_email: settings.brevo_sender_email ?? "",
         brevo_sender_name: settings.brevo_sender_name ?? "CheapDataHub",
+        cheapdatahub_bank_name: (settings as any).cheapdatahub_bank_name ?? "",
+        cheapdatahub_bank_code: (settings as any).cheapdatahub_bank_code ?? "",
+        cheapdatahub_bank_account: (settings as any).cheapdatahub_bank_account ?? "",
+        cheapdatahub_account_name: (settings as any).cheapdatahub_account_name ?? "",
+        cheapdatahub_low_balance_threshold: (settings as any).cheapdatahub_low_balance_threshold ?? 5000,
+        cheapdatahub_topup_amount: (settings as any).cheapdatahub_topup_amount ?? 20000,
+        cheapdatahub_auto_fund: Boolean((settings as any).cheapdatahub_auto_fund),
       });
     }
   }, [settings, reset]);
@@ -137,82 +167,43 @@ export default function AdminSettings() {
     });
   };
 
-  const handleTestPaystack = async () => {
-    const key = settings?.paystack_secret_key;
-    if (!key) return setPaystackResult({ ok: false, message: "Save your Paystack secret key first." });
+  const handleTestPaystack = () => {
     setPaystackResult(null);
-    setPaystackTesting(true);
-    try {
-      const res = await fetch("https://api.paystack.co/bank", {
-        headers: { Authorization: `Bearer ${key}` },
-      });
-      if (res.ok) {
-        setPaystackResult({ ok: true, message: "Paystack key is valid! Connection successful." });
-      } else {
-        const body = await res.json().catch(() => ({}));
-        setPaystackResult({ ok: false, message: (body as any).message ?? "Invalid Paystack key." });
-      }
-    } catch (e: any) {
-      setPaystackResult({ ok: false, message: "Network error: " + e.message });
-    } finally {
-      setPaystackTesting(false);
-    }
+    testPaystack.mutate(undefined, {
+      onSuccess: (msg) => setPaystackResult({ ok: true, message: msg as string }),
+      onError: (err: any) => setPaystackResult({ ok: false, message: err.message }),
+    });
   };
 
-  const handleTestFlutterwave = async () => {
-    const key = settings?.flutterwave_secret_key;
-    if (!key) return setFlutterwaveResult({ ok: false, message: "Save your Flutterwave secret key first." });
+  const handleTestFlutterwave = () => {
     setFlutterwaveResult(null);
-    setFlutterwaveTesting(true);
-    try {
-      const res = await fetch("https://api.flutterwave.com/v3/banks/NG", {
-        headers: { Authorization: `Bearer ${key}` },
-      });
-      if (res.ok) {
-        setFlutterwaveResult({ ok: true, message: "Flutterwave key is valid! Connection successful." });
-      } else {
-        const body = await res.json().catch(() => ({}));
-        setFlutterwaveResult({ ok: false, message: (body as any).message ?? "Invalid Flutterwave key." });
-      }
-    } catch (e: any) {
-      setFlutterwaveResult({ ok: false, message: "Network error: " + e.message });
-    } finally {
-      setFlutterwaveTesting(false);
-    }
+    testFlutterwave.mutate(undefined, {
+      onSuccess: (msg) => setFlutterwaveResult({ ok: true, message: msg as string }),
+      onError: (err: any) => setFlutterwaveResult({ ok: false, message: err.message }),
+    });
   };
 
-  const handleTestBrevo = async () => {
-    const key = settings?.brevo_api_key;
-    const senderEmail = settings?.brevo_sender_email;
-    const senderName = settings?.brevo_sender_name || "CheapDataHub";
-    const adminEmail = (settings as any)?.admin_email;
-    if (!key) return setBrevoResult({ ok: false, message: "Save your Brevo API key first." });
-    if (!senderEmail) return setBrevoResult({ ok: false, message: "Set your Sender Email first, then save." });
-    if (!adminEmail) return setBrevoResult({ ok: false, message: "Set your Admin Email in General settings first, then save." });
+  const handleTestBrevo = () => {
     setBrevoResult(null);
-    setBrevoTesting(true);
-    try {
-      const res = await fetch("https://api.brevo.com/v3/smtp/email", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "api-key": key },
-        body: JSON.stringify({
-          sender: { name: senderName, email: senderEmail },
-          to: [{ email: adminEmail, name: "Admin" }],
-          subject: "CheapDataHub — Test Email",
-          htmlContent: "<h2 style='color:#16a34a'>✅ Email is working!</h2><p>Your Brevo email integration is configured correctly. Users will receive emails from <strong>" + senderName + "</strong>.</p>",
-        }),
-      });
-      if (res.ok || res.status === 201) {
-        setBrevoResult({ ok: true, message: `Test email sent to ${adminEmail} — check your inbox!` });
-      } else {
-        const body = await res.json().catch(() => ({}));
-        setBrevoResult({ ok: false, message: (body as any).message ?? "Failed to send test email." });
-      }
-    } catch (e: any) {
-      setBrevoResult({ ok: false, message: "Network error: " + e.message });
-    } finally {
-      setBrevoTesting(false);
-    }
+    testBrevo.mutate(undefined, {
+      onSuccess: (msg) => setBrevoResult({ ok: true, message: msg as string }),
+      onError: (err: any) => setBrevoResult({ ok: false, message: err.message }),
+    });
+  };
+
+  const handleTestCheapDataHub = () => {
+    setCheapdatahubResult(null);
+    testCheapDataHub.mutate(undefined, {
+      onSuccess: (msg) => setCheapdatahubResult({ ok: true, message: msg as string }),
+      onError: (err: any) => setCheapdatahubResult({ ok: false, message: err.message }),
+    });
+  };
+
+  const handleManualTopup = () => {
+    topupCheapDataHub.mutate({ amount: topupAmount }, {
+      onSuccess: (msg) => toast({ title: "Transfer Initiated", description: msg as string }),
+      onError: (err: any) => toast({ title: "Top-up Failed", description: err.message, variant: "destructive" }),
+    });
   };
 
   if (isLoading) {
@@ -272,9 +263,9 @@ export default function AdminSettings() {
               hasSavedValue={!!settings?.paystack_secret_key} />
             <TestResult result={paystackResult} />
             <Button type="button" variant="outline" size="sm"
-              onClick={handleTestPaystack} disabled={paystackTesting || !settings?.paystack_secret_key}
+              onClick={handleTestPaystack} disabled={testPaystack.isPending || !settings?.paystack_secret_key}
               className="flex items-center gap-2">
-              {paystackTesting
+              {testPaystack.isPending
                 ? <><Loader2 className="h-4 w-4 animate-spin" /> Testing...</>
                 : <><FlaskConical className="h-4 w-4" /> Test Paystack Key</>}
             </Button>
@@ -302,9 +293,9 @@ export default function AdminSettings() {
               hasSavedValue={!!settings?.flutterwave_secret_key} />
             <TestResult result={flutterwaveResult} />
             <Button type="button" variant="outline" size="sm"
-              onClick={handleTestFlutterwave} disabled={flutterwaveTesting || !settings?.flutterwave_secret_key}
+              onClick={handleTestFlutterwave} disabled={testFlutterwave.isPending || !settings?.flutterwave_secret_key}
               className="flex items-center gap-2">
-              {flutterwaveTesting
+              {testFlutterwave.isPending
                 ? <><Loader2 className="h-4 w-4 animate-spin" /> Testing...</>
                 : <><FlaskConical className="h-4 w-4" /> Test Flutterwave Key</>}
             </Button>
@@ -327,12 +318,115 @@ export default function AdminSettings() {
               registration={register("cheapdatahub_api_key")}
               hasSavedValue={!!settings?.cheapdatahub_api_key} />
             <div className="space-y-1.5">
-              <Label htmlFor="cheapdatahub_funding_account">Funding Account Number</Label>
-              <Input id="cheapdatahub_funding_account" placeholder="Account number for wallet funding" {...register("cheapdatahub_funding_account")} />
+              <Label htmlFor="cheapdatahub_funding_account">Your CheapDataHub Account Number</Label>
+              <Input id="cheapdatahub_funding_account" placeholder="Account number users pay to fund wallet" {...register("cheapdatahub_funding_account")} />
+              <p className="text-xs text-gray-400">This is the bank account users pay into to fund their wallet (your CheapDataHub virtual account).</p>
             </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="cheapdatahub_base_url">Base URL</Label>
-              <Input id="cheapdatahub_base_url" placeholder="https://www.cheapdatahub.com/api/v1" {...register("cheapdatahub_base_url")} />
+            <TestResult result={cheapdatahubResult} />
+            <Button type="button" variant="outline" size="sm"
+              onClick={handleTestCheapDataHub} disabled={testCheapDataHub.isPending || !settings?.cheapdatahub_api_key}
+              className="flex items-center gap-2">
+              {testCheapDataHub.isPending
+                ? <><Loader2 className="h-4 w-4 animate-spin" /> Checking...</>
+                : <><FlaskConical className="h-4 w-4" /> Test API Key & Check Balance</>}
+            </Button>
+            {!settings?.cheapdatahub_api_key && (
+              <p className="text-xs text-gray-400">Save your API key first to enable testing.</p>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Auto-Funding */}
+        <Card className="border-blue-100 bg-blue-50/30">
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <Zap className="h-4 w-4 text-blue-600" />
+              Auto-Funding — How Your Money Splits
+              <Badge variant="outline" className="text-xs border-blue-300 text-blue-700">Optional</Badge>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            {/* Explanation */}
+            <div className="rounded-lg border border-blue-200 bg-white p-4 space-y-2">
+              <div className="flex items-start gap-2">
+                <Info className="h-4 w-4 text-blue-500 mt-0.5 shrink-0" />
+                <div className="text-sm text-gray-700 space-y-1">
+                  <p className="font-semibold text-gray-900">How the money flow works:</p>
+                  <p>① User pays ₦300 for MTN 1GB → goes into <strong>your Paystack account</strong></p>
+                  <p>② CheapDataHub delivers the data → deducts <strong>~₦228</strong> from your CheapDataHub wallet</p>
+                  <p>③ Your profit (<strong>₦72</strong>) stays in Paystack automatically</p>
+                  <p className="text-blue-700 font-medium mt-2">Enable Auto-Funding below so the system automatically transfers ₦228 back to CheapDataHub's bank account after each delivery — so your CheapDataHub wallet never runs dry.</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Toggle */}
+            <div className="flex items-center gap-3">
+              <input type="checkbox" id="cheapdatahub_auto_fund" {...register("cheapdatahub_auto_fund")}
+                className="h-4 w-4 accent-primary cursor-pointer" />
+              <Label htmlFor="cheapdatahub_auto_fund" className="cursor-pointer">
+                Enable Auto-Funding (automatically transfer wholesale cost to CheapDataHub after each service)
+              </Label>
+            </div>
+
+            {autoFundEnabled && (
+              <div className="space-y-4 rounded-lg border border-blue-200 bg-white p-4">
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">CheapDataHub Bank Details (from their dashboard → Fund Wallet)</p>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="cheapdatahub_account_name">Account Name</Label>
+                    <Input id="cheapdatahub_account_name" placeholder="e.g. CheapDataHub Ltd" {...register("cheapdatahub_account_name")} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="cheapdatahub_bank_name">Bank Name</Label>
+                    <Input id="cheapdatahub_bank_name" placeholder="e.g. Access Bank" {...register("cheapdatahub_bank_name")} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="cheapdatahub_bank_account">Account Number</Label>
+                    <Input id="cheapdatahub_bank_account" placeholder="10-digit account number" {...register("cheapdatahub_bank_account")} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="cheapdatahub_bank_code">Bank Code</Label>
+                    <Input id="cheapdatahub_bank_code" placeholder="e.g. 044 (Access), 058 (GTB)" {...register("cheapdatahub_bank_code")} />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="cheapdatahub_low_balance_threshold">Low Balance Alert (₦)</Label>
+                    <Input id="cheapdatahub_low_balance_threshold" type="number" placeholder="5000" {...register("cheapdatahub_low_balance_threshold", { valueAsNumber: true })} />
+                    <p className="text-xs text-gray-400">Warn when CheapDataHub balance drops below this.</p>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="cheapdatahub_topup_amount">Auto Top-up Amount (₦)</Label>
+                    <Input id="cheapdatahub_topup_amount" type="number" placeholder="20000" {...register("cheapdatahub_topup_amount", { valueAsNumber: true })} />
+                    <p className="text-xs text-gray-400">Amount to transfer when balance is low.</p>
+                  </div>
+                </div>
+                <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2">
+                  ⚠️ Requires Paystack Transfers to be enabled on your Paystack dashboard (Business → Transfers). Once enabled, transfers happen automatically after each service.
+                </p>
+              </div>
+            )}
+
+            {/* Manual top-up */}
+            <div className="rounded-lg border border-gray-200 bg-white p-4 space-y-3">
+              <p className="text-sm font-medium text-gray-700">Manual Top-up — Send funds to CheapDataHub now</p>
+              <div className="flex gap-2 items-end">
+                <div className="flex-1 space-y-1.5">
+                  <Label>Amount (₦)</Label>
+                  <Input type="number" value={topupAmount} onChange={(e) => setTopupAmount(Number(e.target.value))} placeholder="5000" />
+                </div>
+                <Button type="button" variant="outline" onClick={handleManualTopup}
+                  disabled={topupCheapDataHub.isPending || !(settings as any)?.cheapdatahub_bank_account}
+                  className="flex items-center gap-2 h-10">
+                  {topupCheapDataHub.isPending
+                    ? <><Loader2 className="h-4 w-4 animate-spin" /> Sending...</>
+                    : <><Zap className="h-4 w-4" /> Transfer to CheapDataHub</>}
+                </Button>
+              </div>
+              {!(settings as any)?.cheapdatahub_bank_account && (
+                <p className="text-xs text-gray-400">Add CheapDataHub bank details above and save to enable transfers.</p>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -359,16 +453,15 @@ export default function AdminSettings() {
             </div>
             <TestResult result={brevoResult} />
             <Button type="button" variant="outline" size="sm"
-              onClick={handleTestBrevo} disabled={brevoTesting || !settings?.brevo_api_key}
+              onClick={handleTestBrevo} disabled={testBrevo.isPending || !settings?.brevo_api_key}
               className="flex items-center gap-2">
-              {brevoTesting
+              {testBrevo.isPending
                 ? <><Loader2 className="h-4 w-4 animate-spin" /> Sending...</>
                 : <><FlaskConical className="h-4 w-4" /> Send Test Email</>}
             </Button>
             {!settings?.brevo_api_key && (
               <p className="text-xs text-gray-400">Save your Brevo API key first to enable testing.</p>
             )}
-            <p className="text-xs text-gray-400">Test email goes to the Admin Email set above.</p>
           </CardContent>
         </Card>
 
