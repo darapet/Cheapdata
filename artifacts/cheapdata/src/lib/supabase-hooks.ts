@@ -264,6 +264,7 @@ export function useAdminUpdateSettings() {
         cheapdatahub_low_balance_threshold: Number(data.cheapdatahub_low_balance_threshold ?? 5000),
         cheapdatahub_topup_amount: Number(data.cheapdatahub_topup_amount ?? 20000),
         cheapdatahub_auto_fund: Boolean(data.cheapdatahub_auto_fund),
+        email_provider: data.email_provider || 'brevo',
         smtp_host: data.smtp_host || 'smtp-relay.brevo.com',
         smtp_port: Number(data.smtp_port ?? 587),
       };
@@ -272,6 +273,7 @@ export function useAdminUpdateSettings() {
       if ((data.flutterwave_secret_key as string)?.trim()) payload.flutterwave_secret_key = (data.flutterwave_secret_key as string).trim();
       if ((data.flutterwave_public_key as string)?.trim()) payload.flutterwave_public_key = (data.flutterwave_public_key as string).trim();
       if ((data.cheapdatahub_api_key as string)?.trim()) payload.cheapdatahub_api_key = (data.cheapdatahub_api_key as string).trim();
+      if ((data.brevo_api_key as string)?.trim()) payload.brevo_api_key = (data.brevo_api_key as string).trim();
       if ((data.smtp_user as string)?.trim()) payload.smtp_user = (data.smtp_user as string).trim();
       if ((data.smtp_pass as string)?.trim()) payload.smtp_pass = (data.smtp_pass as string).trim();
 

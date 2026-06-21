@@ -133,15 +133,23 @@ export async function sendReceipt(
       getUserProfile(supabaseAdmin, userId),
     ]);
 
-    const smtpUser = (settings as any)?.smtp_user?.trim();
-    const smtpPass = (settings as any)?.smtp_pass?.trim();
-    const senderEmail = (settings?.brevo_sender_email as string | null)?.trim() || smtpUser;
+    const provider = (settings as any)?.email_provider ?? 'brevo';
+    const senderEmail = (settings?.brevo_sender_email as string | null)?.trim();
+    const senderName = (settings?.brevo_sender_name as string | null) || 'CheapDataHub';
 
-    if (!smtpUser || !smtpPass || !senderEmail || !profile?.email) return;
+    if (!senderEmail || !profile?.email) return;
+
+    // Check required credentials based on provider
+    if (provider === 'smtp') {
+      const smtpUser = (settings as any)?.smtp_user?.trim();
+      const smtpPass = (settings as any)?.smtp_pass?.trim();
+      if (!smtpUser || !smtpPass) return;
+    } else {
+      if (!(settings?.brevo_api_key as string | null)?.trim()) return;
+    }
 
     const smtpHost = (settings as any)?.smtp_host?.trim() || 'smtp-relay.brevo.com';
     const smtpPort = Number((settings as any)?.smtp_port) || 587;
-    const senderName = (settings?.brevo_sender_name as string | null) || 'CheapDataHub';
     const statusOk = status === 'successful';
     const statusColor = statusOk ? '#16a34a' : '#dc2626';
     const statusBg = statusOk ? '#dcfce7' : '#fee2e2';
@@ -172,19 +180,35 @@ export async function sendReceipt(
 <p style="margin:20px 0 0;font-size:12px;color:#9ca3af;text-align:center;">&copy; ${year} ${senderName}</p>
 </td></tr></table></td></tr></table></body></html>`;
 
-    const { default: nodemailer } = await import('npm:nodemailer@6');
-    const transporter = nodemailer.createTransport({
-      host: smtpHost,
-      port: smtpPort,
-      secure: false,
-      auth: { user: smtpUser, pass: smtpPass },
-    });
-    await transporter.sendMail({
-      from: `"${senderName}" <${senderEmail}>`,
-      to: profile.email,
-      subject: `Transaction ${statusOk ? 'Successful' : 'Failed'}: ${description}`,
-      html,
-    });
+    if (provider === 'smtp') {
+      const smtpUser = (settings as any)?.smtp_user?.trim();
+      const smtpPass = (settings as any)?.smtp_pass?.trim();
+      const { default: nodemailer } = await import('npm:nodemailer@6');
+      const transporter = nodemailer.createTransport({
+        host: smtpHost,
+        port: smtpPort,
+        secure: false,
+        auth: { user: smtpUser, pass: smtpPass },
+      });
+      await transporter.sendMail({
+        from: `"${senderName}" <${senderEmail}>`,
+        to: profile.email,
+        subject: `Transaction ${statusOk ? 'Successful' : 'Failed'}: ${description}`,
+        html,
+      });
+    } else {
+      const key = (settings?.brevo_api_key as string | null)?.trim();
+      await fetch('https://api.brevo.com/v3/smtp/email', {
+        method: 'POST',
+        headers: { 'api-key': key!, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sender: { name: senderName, email: senderEmail },
+          to: [{ email: profile.email, name: profile.full_name || 'Customer' }],
+          subject: `Transaction ${statusOk ? 'Successful' : 'Failed'}: ${description}`,
+          htmlContent: html,
+        }),
+      });
+    }
   } catch { /* non-fatal */ }
 }
 
