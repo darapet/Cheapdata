@@ -116,9 +116,9 @@ export default function Electricity() {
     setIsPinModalOpen(true);
   };
 
-  const executePurchase = () => {
+  const executePurchase = (pin: string) => {
     buyElectricity.mutate(
-      { data: { meter_number: meterNumber, disco, amount: amountNum, meter_type: meterType, phone, pin: "VERIFIED_BY_MODAL" } },
+      { data: { meter_number: meterNumber, disco, amount: amountNum, meter_type: meterType, phone, pin } },
       {
         onSuccess: (data) => {
           if (data.success) {
