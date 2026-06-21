@@ -243,6 +243,7 @@ export function useAdminUpdateSettings() {
     mutationFn: async ({ data }: { data: any }) => {
       const { data: existing } = await supabase.from('system_settings').select('id').maybeSingle();
       const payload: Record<string, any> = {
+        admin_email: data.admin_email,
         active_payment_gateway: data.active_payment_gateway,
         cheapdatahub_funding_account: data.cheapdatahub_funding_account,
         cheapdatahub_base_url: data.cheapdatahub_base_url,
