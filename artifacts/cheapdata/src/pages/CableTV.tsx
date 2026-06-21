@@ -23,6 +23,7 @@ export default function CableTV() {
   const [provider, setProvider] = useState("DSTV");
   const [smartCardNumber, setSmartCardNumber] = useState("");
   const [selectedPlan, setSelectedPlan] = useState<CablePlan | null>(null);
+  const [phone, setPhone] = useState("");
   const [isPinModalOpen, setIsPinModalOpen] = useState(false);
   const { toast } = useToast();
 
@@ -54,13 +55,14 @@ export default function CableTV() {
   const executePurchase = () => {
     if (!selectedPlan) return;
     buyCable.mutate(
-      { data: { smart_card_number: smartCardNumber, cable_provider: provider, plan_id: selectedPlan.plan_id, amount: selectedPlan.retail_price, pin: "VERIFIED_BY_MODAL" } },
+      { data: { smart_card_number: smartCardNumber, cable_provider: provider, plan_id: selectedPlan.plan_id, phone, amount: selectedPlan.retail_price, pin: "VERIFIED_BY_MODAL" } },
       {
         onSuccess: (data) => {
           if (data.success) {
             toast({ title: "Success", description: data.message });
             setSmartCardNumber("");
             setSelectedPlan(null);
+            setPhone("");
           } else {
             toast({ title: "Subscription Failed", description: data.message, variant: "destructive" });
           }
@@ -108,6 +110,18 @@ export default function CableTV() {
                 onChange={e => setSmartCardNumber(e.target.value.replace(/[^0-9]/g, ""))}
                 placeholder="Enter 10 or 11 digit number" className="h-12 text-lg" />
             </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="cable-phone">Phone Number</Label>
+                <Input
+                  id="cable-phone"
+                  type="tel"
+                  placeholder="e.g. 08012345678"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  maxLength={11}
+                />
+              </div>
 
             <div className="space-y-2">
               <Label className="text-base">Select Plan</Label>
