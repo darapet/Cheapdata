@@ -19,15 +19,16 @@ interface ResetPinModalProps {
 
 export function ResetPinModal({ open, onOpenChange }: ResetPinModalProps) {
   const [step, setStep]             = useState<Step>("request");
+  const [email, setEmail]           = useState("");
   const [otp, setOtp]               = useState("");
-  const [otpToken, setOtpToken]     = useState(""); // signed token returned by edge fn
+  const [otpToken, setOtpToken]     = useState("");
   const [newPin, setNewPin]         = useState("");
   const [confirmPin, setConfirmPin] = useState("");
   const [isLoading, setIsLoading]   = useState(false);
   const { toast } = useToast();
 
   function reset() {
-    setStep("request"); setOtp(""); setOtpToken("");
+    setStep("request"); setEmail(""); setOtp(""); setOtpToken("");
     setNewPin(""); setConfirmPin(""); setIsLoading(false);
   }
 
@@ -39,22 +40,33 @@ export function ResetPinModal({ open, onOpenChange }: ResetPinModalProps) {
     return session.access_token;
   }
 
-  // Step 1 — ask edge function to generate OTP, email it, return signed token
+  // Pre-fill email from logged-in user when modal opens
+  async function prefillEmail() {
+    if (email) return;
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user?.email) setEmail(user.email);
+  }
+
+  // Step 1 — send OTP to user-supplied email
   async function sendOtp() {
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      toast({ title: "Error", description: "Please enter a valid email address", variant: "destructive" });
+      return;
+    }
     setIsLoading(true);
     try {
       const authToken = await getToken();
       const res = await fetch(`${EDGE_BASE}/send-otp`, {
         method: "POST",
         headers: { "Content-Type": "application/json", "Authorization": `Bearer ${authToken}` },
-        body: JSON.stringify({ action: "send" }),
+        body: JSON.stringify({ action: "send", email }),
       });
       const body = await res.json() as { success: boolean; token?: string; message?: string };
       if (!body.success) throw new Error(body.message ?? "Failed to send code");
 
       setOtpToken(body.token ?? "");
       setStep("otp");
-      toast({ title: "Code Sent ✉️", description: "A 6-digit code was sent to your registered email. Check your inbox (and spam)." });
+      toast({ title: "Code Sent ✉️", description: `A 6-digit code was sent to ${email}. Check your inbox (and spam).` });
     } catch (err: any) {
       toast({ title: "Error", description: err.message || "Could not send code", variant: "destructive" });
     } finally {
@@ -62,7 +74,7 @@ export function ResetPinModal({ open, onOpenChange }: ResetPinModalProps) {
     }
   }
 
-  // Step 3 — send otp + signed token + new_pin to edge function for server-side PIN update
+  // Step 3 — verify OTP and save new PIN
   async function saveNewPin() {
     if (newPin.length !== 4) {
       toast({ title: "Error", description: "PIN must be exactly 4 digits", variant: "destructive" });
@@ -83,7 +95,7 @@ export function ResetPinModal({ open, onOpenChange }: ResetPinModalProps) {
       const body = await res.json() as { success: boolean; message?: string };
       if (!body.success) throw new Error(body.message ?? "Failed to update PIN");
 
-      toast({ title: "PIN Updated ✅", description: "Your new transaction PIN is now active. Use it for your next purchase." });
+      toast({ title: "PIN Updated ✅", description: "Your new transaction PIN is now active." });
       handleClose(false);
     } catch (err: any) {
       toast({ title: "Error", description: err.message || "Failed to update PIN", variant: "destructive" });
@@ -104,12 +116,13 @@ export function ResetPinModal({ open, onOpenChange }: ResetPinModalProps) {
             Reset Transaction PIN
           </DialogTitle>
           <DialogDescription>
-            {step === "request" && "We will send a 6-digit code to your registered email."}
-            {step === "otp"     && "Enter the 6-digit code from your email."}
+            {step === "request" && "Enter your email address to receive a reset code."}
+            {step === "otp"     && "Enter the 6-digit code sent to your email."}
             {step === "newpin"  && "Create your new 4-digit transaction PIN."}
           </DialogDescription>
         </DialogHeader>
 
+        {/* Step indicators */}
         <div className="flex items-center gap-2 py-2">
           {steps.map((s, i) => (
             <div key={s} className="flex items-center gap-2 flex-1">
@@ -123,23 +136,41 @@ export function ResetPinModal({ open, onOpenChange }: ResetPinModalProps) {
           ))}
         </div>
 
+        {/* Step 1 — Email input */}
         {step === "request" && (
           <div className="space-y-4 pt-2">
             <div className="rounded-lg bg-blue-50 border border-blue-200 p-3 text-sm text-blue-800 flex items-center gap-2">
               <Mail className="h-4 w-4 shrink-0" />
-              A 6-digit reset code will be sent to the email on your account.
+              Enter the email address on your account. We'll send a 6-digit code to it.
             </div>
-            <Button className="w-full h-12" onClick={sendOtp} disabled={isLoading}>
+            <div className="space-y-2">
+              <Label htmlFor="reset-email">Your Email Address</Label>
+              <Input
+                id="reset-email"
+                type="email"
+                placeholder="you@example.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                onFocus={prefillEmail}
+                autoFocus
+              />
+            </div>
+            <Button
+              className="w-full h-12"
+              onClick={sendOtp}
+              disabled={isLoading || !email}
+            >
               {isLoading && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
-              {isLoading ? "Sending code..." : "Send Reset Code to My Email"}
+              {isLoading ? "Sending code..." : "Send Reset Code"}
             </Button>
           </div>
         )}
 
+        {/* Step 2 — OTP input */}
         {step === "otp" && (
           <div className="space-y-4 pt-2">
             <div className="rounded-lg bg-blue-50 border border-blue-200 p-3 text-sm text-blue-800">
-              Check your email inbox — the 6-digit code expires in <strong>10 minutes</strong>.
+              Check <strong>{email}</strong> — the 6-digit code expires in <strong>10 minutes</strong>.
             </div>
             <div className="space-y-2">
               <Label htmlFor="otp-input">6-Digit Code</Label>
@@ -152,13 +183,17 @@ export function ResetPinModal({ open, onOpenChange }: ResetPinModalProps) {
             <Button className="w-full h-12" onClick={() => setStep("newpin")} disabled={otp.length !== 6}>
               Continue →
             </Button>
-            <button type="button" className="text-sm text-gray-500 hover:text-primary w-full text-center transition-colors"
-              onClick={() => { setStep("request"); setOtp(""); setOtpToken(""); }}>
-              ← Didn't get the code? Resend
+            <button
+              type="button"
+              className="text-sm text-gray-500 hover:text-primary w-full text-center transition-colors"
+              onClick={() => { setStep("request"); setOtp(""); setOtpToken(""); }}
+            >
+              ← Didn't get the code? Go back
             </button>
           </div>
         )}
 
+        {/* Step 3 — New PIN */}
         {step === "newpin" && (
           <div className="space-y-4 pt-2">
             <div className="rounded-lg bg-green-50 border border-green-200 p-3 text-sm text-green-800 flex items-center gap-2">
@@ -177,8 +212,11 @@ export function ResetPinModal({ open, onOpenChange }: ResetPinModalProps) {
                 value={confirmPin} onChange={(e) => setConfirmPin(e.target.value.replace(/[^0-9]/g, ""))}
                 placeholder="••••" className="text-center text-3xl tracking-[1em] h-16 font-bold" />
             </div>
-            <Button className="w-full h-12 text-base" onClick={saveNewPin}
-              disabled={isLoading || newPin.length !== 4 || confirmPin.length !== 4}>
+            <Button
+              className="w-full h-12 text-base"
+              onClick={saveNewPin}
+              disabled={isLoading || newPin.length !== 4 || confirmPin.length !== 4}
+            >
               {isLoading && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
               {isLoading ? "Saving PIN..." : "Save New PIN"}
             </Button>
