@@ -1,14 +1,18 @@
+import { useState } from "react";
 import { useGetProfile, getGetProfileQueryKey } from "@/lib/supabase-hooks";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatNaira } from "@/lib/utils";
-import { User, Mail, Phone, MapPin, Calendar, ShieldCheck } from "lucide-react";
+import { User, Mail, Phone, MapPin, Calendar, ShieldCheck, KeyRound } from "lucide-react";
 import { format } from "date-fns";
+import { ResetPinModal } from "@/components/ResetPinModal";
 
 export default function Profile() {
   const { data: profile, isLoading } = useGetProfile({
-    query: { queryKey: getGetProfileQueryKey() }
+    query: { queryKey: getGetProfileQueryKey() },
   });
+  const [resetPinOpen, setResetPinOpen] = useState(false);
 
   if (isLoading) {
     return (
@@ -36,15 +40,15 @@ export default function Profile() {
         <CardContent className="pt-0 relative">
           <div className="w-20 h-20 bg-white rounded-full p-1 -mt-10 border-4 border-white shadow-sm flex items-center justify-center">
             <div className="w-full h-full bg-red-100 text-primary rounded-full flex items-center justify-center text-2xl font-bold">
-              {profile.full_name?.charAt(0) || 'U'}
+              {profile.full_name?.charAt(0) || "U"}
             </div>
           </div>
-          
+
           <div className="mt-4">
             <h2 className="text-2xl font-bold text-gray-900">{profile.full_name}</h2>
             <p className="text-gray-500">@{profile.username}</p>
           </div>
-          
+
           <div className="flex items-center gap-2 mt-4 inline-flex px-3 py-1 bg-green-50 text-green-700 rounded-full text-sm font-medium">
             <ShieldCheck className="h-4 w-4" />
             Verified Account
@@ -64,32 +68,75 @@ export default function Profile() {
               </p>
               <p className="font-semibold text-gray-900">{profile.email}</p>
             </div>
-            
+
             <div className="space-y-1 border-b border-gray-100 pb-4">
               <p className="text-sm font-medium text-gray-500 flex items-center gap-2">
                 <Phone className="h-4 w-4" /> Phone Number
               </p>
               <p className="font-semibold text-gray-900">{profile.phone}</p>
             </div>
-            
+
             <div className="space-y-1 border-b border-gray-100 pb-4">
               <p className="text-sm font-medium text-gray-500 flex items-center gap-2">
                 <MapPin className="h-4 w-4" /> Address
               </p>
-              <p className="font-semibold text-gray-900">{profile.address || 'Not provided'}</p>
+              <p className="font-semibold text-gray-900">{profile.address || "Not provided"}</p>
             </div>
-            
+
             <div className="space-y-1 border-b border-gray-100 pb-4">
               <p className="text-sm font-medium text-gray-500 flex items-center gap-2">
                 <Calendar className="h-4 w-4" /> Member Since
               </p>
               <p className="font-semibold text-gray-900">
-                {profile.created_at ? format(new Date(profile.created_at), 'MMMM d, yyyy') : 'Unknown'}
+                {profile.created_at
+                  ? format(new Date(profile.created_at), "MMMM d, yyyy")
+                  : "Unknown"}
               </p>
             </div>
           </div>
         </CardContent>
       </Card>
+
+      {/* Security section */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg flex items-center gap-2">
+            <ShieldCheck className="h-5 w-5 text-primary" />
+            Security
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-center justify-between p-4 rounded-xl bg-gray-50 border border-gray-200">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
+                <KeyRound className="h-5 w-5 text-primary" />
+              </div>
+              <div>
+                <p className="font-semibold text-gray-900">Transaction PIN</p>
+                <p className="text-sm text-gray-500">
+                  {profile.is_pin_set
+                    ? "PIN is set — used to authorize all transactions"
+                    : "No PIN set yet — you must set one to transact"}
+                </p>
+              </div>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setResetPinOpen(true)}
+              className="shrink-0"
+            >
+              {profile.is_pin_set ? "Change PIN" : "Set PIN"}
+            </Button>
+          </div>
+
+          <p className="text-xs text-gray-400">
+            To change your PIN, we&apos;ll send a 4-digit verification code to your registered email address. Your PIN is hashed and never stored in plain text.
+          </p>
+        </CardContent>
+      </Card>
+
+      <ResetPinModal open={resetPinOpen} onOpenChange={setResetPinOpen} />
     </div>
   );
 }
