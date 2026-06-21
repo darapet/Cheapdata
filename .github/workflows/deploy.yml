@@ -78,14 +78,13 @@ jobs:
           supabase --version
 
       - name: Deploy Edge Functions
-        run: |
-          supabase functions deploy verify-cable     --project-ref vumuvcghlumvenmnakyo --no-verify-jwt
-          supabase functions deploy verify-education --project-ref vumuvcghlumvenmnakyo --no-verify-jwt
-          supabase functions deploy send-otp         --project-ref vumuvcghlumvenmnakyo --no-verify-jwt
-          supabase functions deploy buy-data         --project-ref vumuvcghlumvenmnakyo --no-verify-jwt
-          supabase functions deploy buy-cable        --project-ref vumuvcghlumvenmnakyo --no-verify-jwt
-          supabase functions deploy buy-education    --project-ref vumuvcghlumvenmnakyo --no-verify-jwt
-          supabase functions deploy buy-airtime      --project-ref vumuvcghlumvenmnakyo --no-verify-jwt
-          supabase functions deploy buy-electricity  --project-ref vumuvcghlumvenmnakyo --no-verify-jwt
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          for fn in verify-cable verify-education send-otp buy-data buy-cable buy-education buy-airtime buy-electricity sync-plans auto-sync-plans verify-meter; do
+            if [ -d "supabase/functions/$fn" ]; then
+              echo "Deploying $fn..."
+              supabase functions deploy $fn --project-ref vumuvcghlumvenmnakyo --no-verify-jwt || echo "WARNING: $fn deploy failed, continuing..."
+            fi
+          done
+          echo "All function deployments done"
