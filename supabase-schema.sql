@@ -160,6 +160,44 @@ $$;
 
 GRANT EXECUTE ON FUNCTION public.get_public_settings() TO authenticated;
 
+-- ─── Auto-create profile on signup trigger ───────────────────────────────────
+-- This function runs automatically whenever a new user signs up.
+-- It creates a row in profiles so all features (PIN reset, wallet, etc.) work immediately.
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  INSERT INTO public.profiles (id, email, full_name)
+  VALUES (
+    NEW.id,
+    NEW.email,
+    COALESCE(NEW.raw_user_meta_data->>'full_name', '')
+  )
+  ON CONFLICT (id) DO NOTHING;
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+CREATE TRIGGER on_auth_user_created
+  AFTER INSERT ON auth.users
+  FOR EACH ROW
+  EXECUTE FUNCTION public.handle_new_user();
+
+-- Backfill: create profiles for users who signed up before this trigger existed
+INSERT INTO public.profiles (id, email, full_name)
+SELECT
+  u.id,
+  u.email,
+  COALESCE(u.raw_user_meta_data->>'full_name', '')
+FROM auth.users u
+WHERE NOT EXISTS (
+  SELECT 1 FROM public.profiles p WHERE p.id = u.id
+);
+
 -- ─── Seed initial data_plans ──────────────────────────────────────────────────
 INSERT INTO public.data_plans (network, plan_name, data_size, retail_price, wholesale_price, plan_id, validity) VALUES
   ('MTN', 'MTN 500MB', '500MB', 150, 120, 'mtn-500mb-30d', '30 days'),
