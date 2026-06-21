@@ -37,6 +37,7 @@ CREATE TABLE IF NOT EXISTS public.data_plans (
   wholesale_price NUMERIC(10, 2) NOT NULL,
   plan_id TEXT NOT NULL UNIQUE,
   validity TEXT,
+  cheapdatahub_plan_id TEXT,
   is_active BOOLEAN NOT NULL DEFAULT true,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -103,6 +104,8 @@ CREATE TABLE IF NOT EXISTS public.system_settings (
 
 -- ─── Migration: add ALL columns to existing system_settings table ──────────────
 -- Run ALL of these in Supabase SQL Editor (safe to run multiple times):
+ALTER TABLE public.data_plans ADD COLUMN IF NOT EXISTS cheapdatahub_plan_id TEXT;
+
 ALTER TABLE public.system_settings ADD COLUMN IF NOT EXISTS admin_email TEXT;
 ALTER TABLE public.system_settings ADD COLUMN IF NOT EXISTS paystack_public_key TEXT;
 ALTER TABLE public.system_settings ADD COLUMN IF NOT EXISTS paystack_secret_key TEXT;
