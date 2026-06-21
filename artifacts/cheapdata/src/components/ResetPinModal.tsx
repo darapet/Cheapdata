@@ -13,16 +13,11 @@ import { useToast } from "@/hooks/use-toast";
 import { Loader2, Mail, KeyRound, ShieldCheck } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 
-async function hashPin(pin: string): Promise<string> {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(pin + "cheapdatahub_salt");
-  const hash = await crypto.subtle.digest("SHA-256", data);
-  return Array.from(new Uint8Array(hash))
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
-}
+type Step = "request" | "otp" | "newpin";
 
-type Step = "email" | "otp" | "newpin";
+const EDGE_BASE =
+  (import.meta.env.VITE_SUPABASE_URL ?? "").replace(/\/$/, "") +
+  "/functions/v1";
 
 interface ResetPinModalProps {
   open: boolean;
@@ -30,112 +25,82 @@ interface ResetPinModalProps {
 }
 
 export function ResetPinModal({ open, onOpenChange }: ResetPinModalProps) {
-  const [step, setStep] = useState<Step>("email");
-  const [email, setEmail] = useState("");
-  const [otp, setOtp] = useState("");
-  const [generatedOtp, setGeneratedOtp] = useState("");
-  const [userId, setUserId] = useState("");
-  const [newPin, setNewPin] = useState("");
+  const [step, setStep]           = useState<Step>("request");
+  const [otp, setOtp]             = useState("");
+  const [newPin, setNewPin]       = useState("");
   const [confirmPin, setConfirmPin] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const { toast } = useToast();
 
-  const EDGE_BASE =
-    (import.meta.env.VITE_SUPABASE_URL ?? "").replace(/\/$/, "") +
-    "/functions/v1";
-
   function reset() {
-    setStep("email");
-    setEmail("");
+    setStep("request");
     setOtp("");
-    setGeneratedOtp("");
-    setUserId("");
     setNewPin("");
     setConfirmPin("");
     setIsLoading(false);
   }
 
-  function handleClose(open: boolean) {
-    if (!open) reset();
-    onOpenChange(open);
+  function handleClose(v: boolean) {
+    if (!v) reset();
+    onOpenChange(v);
   }
 
+  async function getToken(): Promise<string> {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.access_token) throw new Error("Please log in and try again");
+    return session.access_token;
+  }
+
+  // Step 1 — ask edge function to send OTP to user's own registered email
   async function sendOtp() {
-    if (!email.trim()) {
-      toast({ title: "Error", description: "Please enter your email address", variant: "destructive" });
-      return;
-    }
     setIsLoading(true);
     try {
-      const { data: profileData, error: profileError } = await supabase
-        .from("profiles")
-        .select("id, email")
-        .eq("email", email.trim().toLowerCase())
-        .maybeSingle();
-
-      if (profileError || !profileData) {
-        toast({ title: "Error", description: "No account found with this email address", variant: "destructive" });
-        setIsLoading(false);
-        return;
-      }
-
-      const code = String(Math.floor(1000 + Math.random() * 9000));
-      setGeneratedOtp(code);
-      setUserId(profileData.id);
-
+      const token = await getToken();
       const res = await fetch(`${EDGE_BASE}/send-otp`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: email.trim().toLowerCase(), otp: code }),
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`,
+        },
+        body: JSON.stringify({ action: "send" }),
       });
-
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({})) as { error?: string };
-        throw new Error(body.error ?? "Failed to send OTP");
-      }
+      const body = await res.json() as { success: boolean; message?: string };
+      if (!body.success) throw new Error(body.message ?? "Failed to send code");
 
       setStep("otp");
-      toast({ title: "OTP Sent", description: `A 4-digit code was sent to ${email}. Check your inbox.` });
+      toast({ title: "Code Sent ✉️", description: "A 6-digit code was sent to your email. Check your inbox (and spam)." });
     } catch (err: any) {
-      toast({ title: "Error", description: err.message || "Failed to send OTP email", variant: "destructive" });
+      toast({ title: "Error", description: err.message || "Could not send code", variant: "destructive" });
     } finally {
       setIsLoading(false);
     }
   }
 
-  function verifyOtp() {
-    if (otp.length !== 4) {
-      toast({ title: "Error", description: "Please enter the 4-digit code", variant: "destructive" });
-      return;
-    }
-    if (otp !== generatedOtp) {
-      toast({ title: "Invalid Code", description: "The code you entered is incorrect. Please try again.", variant: "destructive" });
-      setOtp("");
-      return;
-    }
-    setStep("newpin");
-  }
-
+  // Step 3 — edge function verifies OTP and saves PIN using service role key (bypasses RLS)
   async function saveNewPin() {
     if (newPin.length !== 4) {
       toast({ title: "Error", description: "PIN must be exactly 4 digits", variant: "destructive" });
       return;
     }
     if (newPin !== confirmPin) {
-      toast({ title: "Error", description: "PINs do not match", variant: "destructive" });
+      toast({ title: "Error", description: "PINs do not match. Please try again.", variant: "destructive" });
       return;
     }
     setIsLoading(true);
     try {
-      const hashedPin = await hashPin(newPin);
-      const { error } = await supabase
-        .from("profiles")
-        .update({ transaction_pin: hashedPin, is_pin_set: true })
-        .eq("id", userId);
+      const token = await getToken();
+      const res = await fetch(`${EDGE_BASE}/send-otp`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`,
+        },
+        body: JSON.stringify({ action: "verify_and_reset", otp, new_pin: newPin }),
+      });
+      const body = await res.json() as { success: boolean; message?: string };
+      if (!body.success) throw new Error(body.message ?? "Failed to update PIN");
 
-      if (error) throw error;
-
-      toast({ title: "PIN Updated", description: "Your transaction PIN has been reset successfully." });
+      toast({ title: "PIN Updated ✅", description: "Your transaction PIN has been changed. Use it for your next purchase." });
       handleClose(false);
     } catch (err: any) {
       toast({ title: "Error", description: err.message || "Failed to update PIN", variant: "destructive" });
@@ -143,6 +108,9 @@ export function ResetPinModal({ open, onOpenChange }: ResetPinModalProps) {
       setIsLoading(false);
     }
   }
+
+  const steps: Step[] = ["request", "otp", "newpin"];
+  const currentIndex = steps.indexOf(step);
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
@@ -153,98 +121,82 @@ export function ResetPinModal({ open, onOpenChange }: ResetPinModalProps) {
             Reset Transaction PIN
           </DialogTitle>
           <DialogDescription>
-            {step === "email" && "Enter your email address to receive a reset code."}
-            {step === "otp" && `Enter the 4-digit code sent to ${email}.`}
-            {step === "newpin" && "Create your new 4-digit transaction PIN."}
+            {step === "request" && "We will send a 6-digit code to your registered email address."}
+            {step === "otp"     && "Enter the 6-digit code from your email."}
+            {step === "newpin"  && "Create your new 4-digit transaction PIN."}
           </DialogDescription>
         </DialogHeader>
 
-        {/* Step indicator */}
+        {/* Step progress bar */}
         <div className="flex items-center gap-2 py-2">
-          {(["email", "otp", "newpin"] as Step[]).map((s, i) => (
+          {steps.map((s, i) => (
             <div key={s} className="flex items-center gap-2 flex-1">
-              <div
-                className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold shrink-0 transition-colors ${
-                  step === s
-                    ? "bg-primary text-white"
-                    : ["email", "otp", "newpin"].indexOf(step) > i
-                    ? "bg-green-500 text-white"
-                    : "bg-gray-200 text-gray-500"
-                }`}
-              >
-                {["email", "otp", "newpin"].indexOf(step) > i ? "✓" : i + 1}
+              <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold shrink-0 transition-colors ${
+                step === s ? "bg-primary text-white" : currentIndex > i ? "bg-green-500 text-white" : "bg-gray-200 text-gray-500"
+              }`}>
+                {currentIndex > i ? "✓" : i + 1}
               </div>
-              {i < 2 && <div className={`flex-1 h-0.5 ${["email", "otp", "newpin"].indexOf(step) > i ? "bg-green-500" : "bg-gray-200"}`} />}
+              {i < 2 && <div className={`flex-1 h-0.5 ${currentIndex > i ? "bg-green-500" : "bg-gray-200"}`} />}
             </div>
           ))}
         </div>
 
-        {/* Step 1: Email */}
-        {step === "email" && (
+        {/* Step 1 — Request code */}
+        {step === "request" && (
           <div className="space-y-4 pt-2">
-            <div className="space-y-2">
-              <Label htmlFor="reset-email" className="flex items-center gap-2">
-                <Mail className="h-4 w-4" /> Email Address
-              </Label>
-              <Input
-                id="reset-email"
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="your@email.com"
-                autoFocus
-                onKeyDown={(e) => e.key === "Enter" && sendOtp()}
-              />
+            <div className="rounded-lg bg-blue-50 border border-blue-200 p-3 text-sm text-blue-800 flex items-center gap-2">
+              <Mail className="h-4 w-4 shrink-0" />
+              A 6-digit reset code will be sent to the email on your account.
             </div>
-            <Button className="w-full h-12" onClick={sendOtp} disabled={isLoading || !email.trim()}>
+            <Button className="w-full h-12" onClick={sendOtp} disabled={isLoading}>
               {isLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-              {isLoading ? "Sending..." : "Send Reset Code"}
+              {isLoading ? "Sending code..." : "Send Reset Code to My Email"}
             </Button>
           </div>
         )}
 
-        {/* Step 2: OTP */}
+        {/* Step 2 — Enter OTP */}
         {step === "otp" && (
           <div className="space-y-4 pt-2">
             <div className="rounded-lg bg-blue-50 border border-blue-200 p-3 text-sm text-blue-800">
-              A 4-digit code was sent to <strong>{email}</strong>. Check your inbox (and spam folder if not found).
+              Check your email inbox — the 6-digit code expires in <strong>10 minutes</strong>.
             </div>
             <div className="space-y-2">
-              <Label htmlFor="otp-input">4-Digit Code</Label>
+              <Label htmlFor="otp-input">6-Digit Code</Label>
               <Input
                 id="otp-input"
                 type="text"
                 inputMode="numeric"
-                maxLength={4}
+                maxLength={6}
                 value={otp}
                 onChange={(e) => setOtp(e.target.value.replace(/[^0-9]/g, ""))}
-                placeholder="0000"
-                className="text-center text-3xl tracking-[1em] h-16 font-bold"
+                placeholder="000000"
+                className="text-center text-2xl tracking-[0.5em] h-16 font-bold"
                 autoFocus
               />
             </div>
-            <Button className="w-full h-12" onClick={verifyOtp} disabled={otp.length !== 4}>
-              Verify Code
+            <Button className="w-full h-12" onClick={() => setStep("newpin")} disabled={otp.length !== 6}>
+              Continue →
             </Button>
             <button
               type="button"
               className="text-sm text-gray-500 hover:text-primary w-full text-center transition-colors"
-              onClick={() => { setStep("email"); setOtp(""); }}
+              onClick={() => { setStep("request"); setOtp(""); }}
             >
-              ← Back / Resend code
+              ← Didn't get the code? Resend
             </button>
           </div>
         )}
 
-        {/* Step 3: New PIN */}
+        {/* Step 3 — New PIN */}
         {step === "newpin" && (
           <div className="space-y-4 pt-2">
             <div className="rounded-lg bg-green-50 border border-green-200 p-3 text-sm text-green-800 flex items-center gap-2">
               <ShieldCheck className="h-4 w-4 shrink-0" />
-              Identity verified. Set your new PIN below.
+              Identity verified. Create your new 4-digit PIN.
             </div>
             <div className="space-y-2">
-              <Label htmlFor="new-pin">New PIN</Label>
+              <Label htmlFor="new-pin">New PIN (4 digits)</Label>
               <Input
                 id="new-pin"
                 type="password"
@@ -252,7 +204,7 @@ export function ResetPinModal({ open, onOpenChange }: ResetPinModalProps) {
                 maxLength={4}
                 value={newPin}
                 onChange={(e) => setNewPin(e.target.value.replace(/[^0-9]/g, ""))}
-                placeholder="0000"
+                placeholder="••••"
                 className="text-center text-3xl tracking-[1em] h-16 font-bold"
                 autoFocus
               />
@@ -266,7 +218,7 @@ export function ResetPinModal({ open, onOpenChange }: ResetPinModalProps) {
                 maxLength={4}
                 value={confirmPin}
                 onChange={(e) => setConfirmPin(e.target.value.replace(/[^0-9]/g, ""))}
-                placeholder="0000"
+                placeholder="••••"
                 className="text-center text-3xl tracking-[1em] h-16 font-bold"
               />
             </div>
@@ -276,7 +228,7 @@ export function ResetPinModal({ open, onOpenChange }: ResetPinModalProps) {
               disabled={isLoading || newPin.length !== 4 || confirmPin.length !== 4}
             >
               {isLoading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-              {isLoading ? "Saving..." : "Save New PIN"}
+              {isLoading ? "Saving PIN..." : "Save New PIN"}
             </Button>
           </div>
         )}
