@@ -108,7 +108,7 @@ export default function AdminSettings() {
   const [cheapdatahubResult, setCheapdatahubResult] = useState<{ ok: boolean; message: string } | null>(null);
   const [topupAmount, setTopupAmount] = useState(5000);
 
-  const { register, handleSubmit, reset, watch } = useForm<SettingsForm>({
+  const { register, handleSubmit, reset, watch, setValue } = useForm<SettingsForm>({
     defaultValues: {
       active_payment_gateway: "paystack",
       admin_email: "",
@@ -456,10 +456,11 @@ export default function AdminSettings() {
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
+            <input type="hidden" {...register("email_provider")} />
             {/* Toggle */}
             <div className="flex rounded-lg border border-gray-200 p-1 gap-1 bg-gray-50">
               <button type="button"
-                onClick={() => { const f = document.getElementById('email_provider_brevo') as HTMLInputElement; if (f) f.click(); }}
+                onClick={() => setValue("email_provider", "brevo")}
                 className={`flex-1 py-1.5 px-3 rounded-md text-sm font-medium transition-all ${
                   emailProvider === 'brevo'
                     ? 'bg-white shadow text-gray-900'
@@ -468,7 +469,7 @@ export default function AdminSettings() {
                 Brevo API Key
               </button>
               <button type="button"
-                onClick={() => { const f = document.getElementById('email_provider_smtp') as HTMLInputElement; if (f) f.click(); }}
+                onClick={() => setValue("email_provider", "smtp")}
                 className={`flex-1 py-1.5 px-3 rounded-md text-sm font-medium transition-all ${
                   emailProvider === 'smtp'
                     ? 'bg-white shadow text-gray-900'
@@ -476,8 +477,6 @@ export default function AdminSettings() {
                 }`}>
                 SMTP
               </button>
-              <input type="radio" id="email_provider_brevo" value="brevo" className="sr-only" {...register("email_provider")} />
-              <input type="radio" id="email_provider_smtp" value="smtp" className="sr-only" {...register("email_provider")} />
             </div>
 
             {/* Brevo API Key panel */}
