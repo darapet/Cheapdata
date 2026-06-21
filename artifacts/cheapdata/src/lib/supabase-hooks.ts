@@ -120,9 +120,30 @@ async function deductAndRecord(userId: string, balance: number, amount: number, 
   }
 }
 
+// ── API helpers for Express backend ───────────────────────────────────────────
+const API_BASE = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '');
+async function authHeaders() {
+  const { data } = await supabase.auth.getSession();
+  return { 'Content-Type': 'application/json', Authorization: `Bearer ${data.session?.access_token ?? ''}` };
+}
+
+// ── Service hooks — route through Express (CheapDataHub integration) ──────────
+// If API_BASE is set, calls the Express backend which handles CheapDataHub delivery.
+// Falls back to Supabase-direct (manual fulfillment mode) if no API server is configured.
+
 export function useBuyData() {
   return useMutation({
     mutationFn: async ({ data }: { data: { phone: string; plan_id: string; network: string; pin: string } }) => {
+      if (API_BASE) {
+        const res = await fetch(`${API_BASE}/api/services/data`, {
+          method: 'POST',
+          headers: await authHeaders(),
+          body: JSON.stringify(data),
+        });
+        const body = await res.json() as { success: boolean; message: string };
+        return body;
+      }
+      // Fallback: Supabase direct (no CheapDataHub)
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Not authenticated');
       const { data: plan } = await supabase.from('data_plans').select('*').eq('plan_id', data.plan_id).single();
@@ -138,6 +159,15 @@ export function useBuyData() {
 export function useBuyAirtime() {
   return useMutation({
     mutationFn: async ({ data }: { data: { phone: string; network: string; amount: number; pin: string } }) => {
+      if (API_BASE) {
+        const res = await fetch(`${API_BASE}/api/services/airtime`, {
+          method: 'POST',
+          headers: await authHeaders(),
+          body: JSON.stringify(data),
+        });
+        const body = await res.json() as { success: boolean; message: string };
+        return body;
+      }
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Not authenticated');
       const balance = await getProfileBalance(user.id);
@@ -151,6 +181,15 @@ export function useBuyAirtime() {
 export function useBuyCable() {
   return useMutation({
     mutationFn: async ({ data }: { data: { smart_card_number: string; cable_provider: string; plan_id: string; amount: number; pin: string } }) => {
+      if (API_BASE) {
+        const res = await fetch(`${API_BASE}/api/services/cable`, {
+          method: 'POST',
+          headers: await authHeaders(),
+          body: JSON.stringify(data),
+        });
+        const body = await res.json() as { success: boolean; message: string };
+        return body;
+      }
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Not authenticated');
       const balance = await getProfileBalance(user.id);
@@ -164,6 +203,15 @@ export function useBuyCable() {
 export function useBuyElectricity() {
   return useMutation({
     mutationFn: async ({ data }: { data: { meter_number: string; disco: string; amount: number; meter_type: string; pin: string } }) => {
+      if (API_BASE) {
+        const res = await fetch(`${API_BASE}/api/services/electricity`, {
+          method: 'POST',
+          headers: await authHeaders(),
+          body: JSON.stringify(data),
+        });
+        const body = await res.json() as { success: boolean; message: string };
+        return body;
+      }
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Not authenticated');
       const balance = await getProfileBalance(user.id);
@@ -249,6 +297,14 @@ export function useAdminUpdateSettings() {
         cheapdatahub_base_url: data.cheapdatahub_base_url,
         brevo_sender_email: data.brevo_sender_email,
         brevo_sender_name: data.brevo_sender_name,
+        // Auto-funding fields
+        cheapdatahub_bank_name: data.cheapdatahub_bank_name ?? '',
+        cheapdatahub_bank_code: data.cheapdatahub_bank_code ?? '',
+        cheapdatahub_bank_account: data.cheapdatahub_bank_account ?? '',
+        cheapdatahub_account_name: data.cheapdatahub_account_name ?? '',
+        cheapdatahub_low_balance_threshold: Number(data.cheapdatahub_low_balance_threshold ?? 5000),
+        cheapdatahub_topup_amount: Number(data.cheapdatahub_topup_amount ?? 20000),
+        cheapdatahub_auto_fund: Boolean(data.cheapdatahub_auto_fund),
       };
       if (data.paystack_secret_key) payload.paystack_secret_key = data.paystack_secret_key;
       if (data.paystack_public_key) payload.paystack_public_key = data.paystack_public_key;
@@ -270,54 +326,78 @@ export function useAdminUpdateSettings() {
   });
 }
 
-// ── API helpers for Express test endpoints ─────────────────────────────────────
-const API_BASE = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '')
-async function authHeaders() {
-  const { data } = await supabase.auth.getSession()
-  return { 'Content-Type': 'application/json', Authorization: `Bearer ${data.session?.access_token ?? ''}` }
-}
-
-// ── Admin: Test Paystack key (calls Express API) ───────────────────────────────
+// ── Admin: Test Paystack key ───────────────────────────────────────────────────
 export function useAdminTestPaystack() {
   return useMutation({
     mutationFn: async () => {
       const res = await fetch(`${API_BASE}/api/admin/test-paystack`, {
         method: 'POST',
         headers: await authHeaders(),
-      })
-      const body = await res.json() as { ok?: boolean; message?: string; error?: string }
-      if (!res.ok) throw new Error(body.error ?? 'Test failed')
-      return body.message ?? 'Success'
+      });
+      const body = await res.json() as { ok?: boolean; message?: string; error?: string };
+      if (!res.ok) throw new Error(body.error ?? 'Test failed');
+      return body.message ?? 'Success';
     },
-  })
+  });
 }
 
-// ── Admin: Test Brevo (send test email, calls Express API) ────────────────────
+// ── Admin: Test Brevo ─────────────────────────────────────────────────────────
 export function useAdminTestBrevo() {
   return useMutation({
     mutationFn: async () => {
       const res = await fetch(`${API_BASE}/api/admin/test-brevo`, {
         method: 'POST',
         headers: await authHeaders(),
-      })
-      const body = await res.json() as { ok?: boolean; message?: string; error?: string }
-      if (!res.ok) throw new Error(body.error ?? 'Test failed')
-      return body.message ?? 'Success'
+      });
+      const body = await res.json() as { ok?: boolean; message?: string; error?: string };
+      if (!res.ok) throw new Error(body.error ?? 'Test failed');
+      return body.message ?? 'Success';
     },
-  })
+  });
 }
 
-// ── Admin: Test Flutterwave key (calls Express API) ───────────────────────────
+// ── Admin: Test Flutterwave key ───────────────────────────────────────────────
 export function useAdminTestFlutterwave() {
   return useMutation({
     mutationFn: async () => {
       const res = await fetch(`${API_BASE}/api/admin/test-flutterwave`, {
         method: 'POST',
         headers: await authHeaders(),
-      })
-      const body = await res.json() as { ok?: boolean; message?: string; error?: string }
-      if (!res.ok) throw new Error(body.error ?? 'Test failed')
-      return body.message ?? 'Success'
+      });
+      const body = await res.json() as { ok?: boolean; message?: string; error?: string };
+      if (!res.ok) throw new Error(body.error ?? 'Test failed');
+      return body.message ?? 'Success';
     },
-  })
+  });
+}
+
+// ── Admin: Test CheapDataHub API key (checks wallet balance) ─────────────────
+export function useAdminTestCheapDataHub() {
+  return useMutation({
+    mutationFn: async () => {
+      const res = await fetch(`${API_BASE}/api/admin/cheapdatahub-balance`, {
+        method: 'GET',
+        headers: await authHeaders(),
+      });
+      const body = await res.json() as { ok?: boolean; message?: string; balance?: number; error?: string };
+      if (!res.ok) throw new Error(body.error ?? 'Test failed');
+      return body.message ?? 'Success';
+    },
+  });
+}
+
+// ── Admin: Manual CheapDataHub top-up via Paystack transfer ──────────────────
+export function useAdminTopupCheapDataHub() {
+  return useMutation({
+    mutationFn: async ({ amount }: { amount: number }) => {
+      const res = await fetch(`${API_BASE}/api/admin/cheapdatahub-topup`, {
+        method: 'POST',
+        headers: await authHeaders(),
+        body: JSON.stringify({ amount }),
+      });
+      const body = await res.json() as { ok?: boolean; message?: string; error?: string };
+      if (!res.ok) throw new Error(body.error ?? 'Top-up failed');
+      return body.message ?? 'Transfer initiated';
+    },
+  });
 }
