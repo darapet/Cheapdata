@@ -4,7 +4,8 @@ import { sendTransactionEmail } from './email';
 
 async function hashPin(pin: string): Promise<string> {
   const encoder = new TextEncoder();
-  const data = encoder.encode(pin);
+  // Must match server-side salt: pin + "cheapdatahub_salt"
+  const data = encoder.encode(pin + 'cheapdatahub_salt');
   const hash = await crypto.subtle.digest('SHA-256', data);
   return Array.from(new Uint8Array(hash)).map((b) => b.toString(16).padStart(2, '0')).join('');
 }
@@ -392,25 +393,12 @@ export function useAdminTestPaystack() {
   export function useAdminTestCheapDataHub() {
     return useMutation({
       mutationFn: async () => {
-        const { data: s } = await supabase.from('system_settings').select('cheapdatahub_api_key').maybeSingle();
-        const key = (s as any)?.cheapdatahub_api_key?.trim();
-        if (!key) throw new Error('No CheapDataHub API key saved. Save your key first.');
-        const endpoints = [
-          'https://www.cheapdatahub.ng/api/v1/resellers/wallet/',
-          'https://www.cheapdatahub.ng/api/v1/resellers/balance/',
-          'https://www.cheapdatahub.ng/api/v1/wallet/',
-        ];
-        for (const url of endpoints) {
-          try {
-            const r = await fetch(url, { headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' } });
-            if (r.ok) {
-              const body = await r.json() as Record<string, unknown>;
-              const balance = (body as any).balance ?? (body as any).data?.balance ?? (body as any).wallet_balance ?? (body as any).amount ?? 'unknown';
-              return `CheapDataHub key is valid ✓ — Wallet Balance: ₦${Number(balance).toLocaleString()}`;
-            }
-          } catch { continue; }
-        }
-        throw new Error('Could not reach CheapDataHub balance API. Verify your API key is correct.');
+        // Must go through the backend — CheapDataHub blocks direct browser requests (CORS)
+        const headers = await authHeaders();
+        const r = await fetch(`${API_BASE}/api/admin/cheapdatahub-balance`, { headers });
+        const body = await r.json() as { ok?: boolean; balance?: unknown; message?: string; error?: string };
+        if (!r.ok || body.error) throw new Error(body.error ?? 'Could not reach CheapDataHub. Verify your API key.');
+        return body.message ?? `CheapDataHub key is valid ✓ — Wallet Balance: ₦${Number(body.balance).toLocaleString()}`;
       },
     });
   }
