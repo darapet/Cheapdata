@@ -11,51 +11,60 @@ jobs:
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
         run: |
-          SQL="
-          CREATE OR REPLACE FUNCTION public.handle_new_user()
-          RETURNS TRIGGER
-          LANGUAGE plpgsql
-          SECURITY DEFINER
-          SET search_path = public
-          AS \$\$
-          BEGIN
+          node << 'NODEOF'
+          const TOKEN = process.env.SUPABASE_ACCESS_TOKEN;
+          const PROJECT_REF = "vumuvcghlumvenmnakyo";
+
+          const sql = `
+            CREATE OR REPLACE FUNCTION public.handle_new_user()
+            RETURNS TRIGGER
+            LANGUAGE plpgsql
+            SECURITY DEFINER
+            SET search_path = public
+            AS $func$
+            BEGIN
+              INSERT INTO public.profiles (id, email, full_name)
+              VALUES (
+                NEW.id,
+                NEW.email,
+                COALESCE(NEW.raw_user_meta_data->>'full_name', '')
+              )
+              ON CONFLICT (id) DO NOTHING;
+              RETURN NEW;
+            END;
+            $func$;
+
+            DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+            CREATE TRIGGER on_auth_user_created
+              AFTER INSERT ON auth.users
+              FOR EACH ROW
+              EXECUTE FUNCTION public.handle_new_user();
+
             INSERT INTO public.profiles (id, email, full_name)
-            VALUES (
-              NEW.id,
-              NEW.email,
-              COALESCE(NEW.raw_user_meta_data->>'full_name', '')
-            )
-            ON CONFLICT (id) DO NOTHING;
-            RETURN NEW;
-          END;
-          \$\$;
+            SELECT u.id, u.email, COALESCE(u.raw_user_meta_data->>'full_name', '')
+            FROM auth.users u
+            WHERE NOT EXISTS (SELECT 1 FROM public.profiles p WHERE p.id = u.id);
+          `;
 
-          DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
-          CREATE TRIGGER on_auth_user_created
-            AFTER INSERT ON auth.users
-            FOR EACH ROW
-            EXECUTE FUNCTION public.handle_new_user();
+          const res = await fetch(
+            `https://api.supabase.com/v1/projects/${PROJECT_REF}/database/query`,
+            {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${TOKEN}`,
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({ query: sql }),
+            }
+          );
 
-          INSERT INTO public.profiles (id, email, full_name)
-          SELECT u.id, u.email, COALESCE(u.raw_user_meta_data->>'full_name', '')
-          FROM auth.users u
-          WHERE NOT EXISTS (SELECT 1 FROM public.profiles p WHERE p.id = u.id);
-          "
+          const body = await res.json();
+          console.log("HTTP:", res.status);
+          console.log("Response:", JSON.stringify(body, null, 2));
 
-          RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
-            "https://api.supabase.com/v1/projects/vumuvcghlumvenmnakyo/database/query" \
-            -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
-            -H "Content-Type: application/json" \
-            -d "{\"query\": $(echo "$SQL" | jq -Rs .)}")
-
-          HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
-          BODY=$(echo "$RESPONSE" | head -n -1)
-
-          echo "HTTP $HTTP_CODE"
-          echo "$BODY"
-
-          if [ "$HTTP_CODE" != "200" ]; then
-            echo "❌ Migration failed"
-            exit 1
-          fi
-          echo "✅ Profile trigger + backfill applied successfully"
+          if (!res.ok) {
+            console.error("Migration failed");
+            process.exit(1);
+          }
+          console.log("Profile trigger + backfill applied successfully!");
+          NODEOF
