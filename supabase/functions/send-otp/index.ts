@@ -1,115 +1,122 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { corsHeaders, getSupabaseAdmin, verifyAuthToken, getSettings, hashPin, jsonResponse } from '../_shared/helpers.ts';
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
+async function signOtp(otp: string, userId: string, expiresAt: number): Promise<string> {
+  const key = await crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode('otp_pin_reset_cheapdatahub_2024'),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign'],
+  );
+  const data = new TextEncoder().encode(`${otp}:${userId}:${expiresAt}`);
+  const sig = await crypto.subtle.sign('HMAC', key, data);
+  return Array.from(new Uint8Array(sig)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
 
-serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: corsHeaders });
-  }
+Deno.serve(async (req) => {
+  if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
 
   try {
-    const { email, otp } = await req.json() as { email: string; otp: string };
+    const authHeader = req.headers.get('Authorization');
+    if (!authHeader) return jsonResponse({ success: false, message: 'Unauthorized' }, 401);
 
-    if (!email || !otp) {
-      return new Response(JSON.stringify({ error: "email and otp are required" }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
+    const supabaseAdmin = getSupabaseAdmin();
+    const token = authHeader.replace('Bearer ', '');
+    const user = await verifyAuthToken(supabaseAdmin, token);
+    if (!user) return jsonResponse({ success: false, message: 'Invalid or expired token' }, 401);
 
-    const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
-    const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+    const body = await req.json() as { action: string; otp?: string; token?: string; new_pin?: string };
 
-    // Fetch settings from DB (brevo api key, sender info)
-    const settingsRes = await fetch(
-      `${SUPABASE_URL}/rest/v1/system_settings?select=brevo_api_key,brevo_sender_email,brevo_sender_name,smtp_host,smtp_port,smtp_user,smtp_pass,email_provider&limit=1`,
-      {
-        headers: {
-          apikey: SUPABASE_SERVICE_ROLE_KEY,
-          Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
-        },
+    // ── ACTION: send ─────────────────────────────────────────────────────────
+    if (body.action === 'send') {
+      const otp = String(Math.floor(100000 + Math.random() * 900000));
+      const expiresAt = Date.now() + 10 * 60 * 1000;
+      const signature = await signOtp(otp, user.id, expiresAt);
+      const otpToken = `${signature}:${expiresAt}`;
+
+      const [profileRes, settings] = await Promise.all([
+        supabaseAdmin.from('profiles').select('email, full_name').eq('id', user.id).single(),
+        getSettings(supabaseAdmin),
+      ]);
+
+      const profile = profileRes.data;
+      const senderEmail = (settings?.brevo_sender_email as string | null)?.trim();
+      const senderName  = (settings?.brevo_sender_name  as string | null) || 'CheapDataHub';
+      const brevoKey    = (settings?.brevo_api_key       as string | null)?.trim();
+
+      if (senderEmail && brevoKey && profile?.email) {
+        const html = `<!DOCTYPE html><html><body style="margin:0;padding:0;background:#f3f4f6;font-family:Arial,sans-serif;">
+<table width="100%" cellpadding="0" cellspacing="0" style="padding:40px 0;background:#f3f4f6;">
+<tr><td align="center"><table width="520" cellpadding="0" cellspacing="0" style="background:#fff;border-radius:12px;overflow:hidden;">
+<tr><td style="background:linear-gradient(135deg,#7c3aed,#6d28d9);padding:28px;text-align:center;">
+<h1 style="margin:0;color:#fff;font-size:20px;">${senderName}</h1></td></tr>
+<tr><td style="padding:32px;">
+<p style="margin:0 0 12px;font-size:15px;color:#374151;">Hi <strong>${profile.full_name || 'there'}</strong>,</p>
+<p style="margin:0 0 24px;font-size:14px;color:#6b7280;">You requested a Transaction PIN reset. Use the code below — expires in <strong>10 minutes</strong>.</p>
+<div style="background:#f9fafb;border:2px dashed #e5e7eb;border-radius:12px;padding:24px;text-align:center;margin:0 0 24px;">
+<p style="margin:0 0 6px;font-size:12px;color:#9ca3af;letter-spacing:1px;text-transform:uppercase;">Your Reset Code</p>
+<p style="margin:0;font-size:42px;font-weight:900;letter-spacing:12px;color:#7c3aed;">${otp}</p>
+</div>
+<p style="margin:0;font-size:12px;color:#9ca3af;text-align:center;">If you did not request this, ignore this email.</p>
+</td></tr></table></td></tr></table></body></html>`;
+
+        await fetch('https://api.brevo.com/v3/smtp/email', {
+          method: 'POST',
+          headers: { 'api-key': brevoKey, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            sender: { name: senderName, email: senderEmail },
+            to: [{ email: profile.email, name: profile.full_name || 'Customer' }],
+            subject: `${otp} — Your ${senderName} PIN Reset Code`,
+            htmlContent: html,
+          }),
+        });
       }
-    );
-    const settingsArr = await settingsRes.json() as any[];
-    const settings = settingsArr?.[0] ?? {};
 
-    const brevoApiKey = settings.brevo_api_key || Deno.env.get("BREVO_API_KEY") || "";
-    const senderEmail = settings.brevo_sender_email || Deno.env.get("BREVO_SENDER_EMAIL") || "noreply@cheapdatahub.com";
-    const senderName = settings.brevo_sender_name || "CheapDataHub";
-
-    const htmlBody = `
-<!DOCTYPE html>
-<html>
-<head><meta charset="utf-8"></head>
-<body style="font-family: Arial, sans-serif; background: #f9f9f9; padding: 40px 0;">
-  <div style="max-width: 480px; margin: 0 auto; background: #fff; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.08);">
-    <div style="background: #e53e3e; padding: 28px 32px;">
-      <h1 style="color: #fff; margin: 0; font-size: 22px;">CheapDataHub</h1>
-      <p style="color: rgba(255,255,255,0.85); margin: 6px 0 0; font-size: 14px;">Transaction PIN Reset</p>
-    </div>
-    <div style="padding: 32px;">
-      <p style="color: #444; font-size: 15px; margin: 0 0 20px;">Your verification code to reset your transaction PIN is:</p>
-      <div style="background: #f3f4f6; border: 2px solid #e53e3e; border-radius: 10px; text-align: center; padding: 20px;">
-        <span style="font-size: 48px; font-weight: 900; letter-spacing: 12px; color: #e53e3e;">${otp}</span>
-      </div>
-      <p style="color: #666; font-size: 13px; margin: 20px 0 0;">This code is valid for <strong>10 minutes</strong>. Do not share it with anyone.</p>
-      <p style="color: #999; font-size: 12px; margin: 16px 0 0;">If you did not request this, please ignore this email. Your PIN remains unchanged.</p>
-    </div>
-    <div style="background: #f9f9f9; padding: 16px 32px; border-top: 1px solid #eee;">
-      <p style="color: #aaa; font-size: 11px; margin: 0; text-align: center;">© ${new Date().getFullYear()} CheapDataHub. All rights reserved.</p>
-    </div>
-  </div>
-</body>
-</html>`;
-
-    const textBody = `Your CheapDataHub PIN reset code is: ${otp}\n\nThis code expires in 10 minutes. Do not share it with anyone.`;
-
-    if (!brevoApiKey) {
-      // Fallback: try Supabase's built-in SMTP if Brevo key is not configured
-      console.error("No Brevo API key configured. Cannot send OTP email.");
-      return new Response(
-        JSON.stringify({ error: "Email service not configured. Please contact support." }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      return jsonResponse({ success: true, token: otpToken, message: 'OTP sent to your email' });
     }
 
-    // Send via Brevo (Sendinblue) transactional email API
-    const brevoRes = await fetch("https://api.brevo.com/v3/smtp/email", {
-      method: "POST",
-      headers: {
-        "api-key": brevoApiKey,
-        "Content-Type": "application/json",
-        Accept: "application/json",
-      },
-      body: JSON.stringify({
-        sender: { name: senderName, email: senderEmail },
-        to: [{ email }],
-        subject: `${otp} — Your CheapDataHub PIN Reset Code`,
-        htmlContent: htmlBody,
-        textContent: textBody,
-      }),
-    });
+    // ── ACTION: verify_and_reset ──────────────────────────────────────────────
+    if (body.action === 'verify_and_reset') {
+      const { otp, token: otpToken, new_pin } = body;
 
-    if (!brevoRes.ok) {
-      const errBody = await brevoRes.text();
-      console.error("Brevo send failed:", errBody);
-      return new Response(
-        JSON.stringify({ error: "Failed to send email. Please try again." }),
-        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
+      if (!otp || !otpToken || !new_pin || new_pin.length !== 4) {
+        return jsonResponse({ success: false, message: 'OTP, token and 4-digit new PIN are required' }, 400);
+      }
+
+      const lastColon = otpToken.lastIndexOf(':');
+      if (lastColon === -1) return jsonResponse({ success: false, message: 'Invalid token. Request a new code.' }, 400);
+
+      const signature = otpToken.slice(0, lastColon);
+      const expiresAt = parseInt(otpToken.slice(lastColon + 1), 10);
+
+      if (isNaN(expiresAt) || Date.now() > expiresAt) {
+        return jsonResponse({ success: false, message: 'Code has expired. Please request a new one.' }, 400);
+      }
+
+      const expectedSig = await signOtp(otp, user.id, expiresAt);
+      if (signature !== expectedSig) {
+        return jsonResponse({ success: false, message: 'Incorrect code. Please check and try again.' }, 400);
+      }
+
+      // Update ONLY transaction_pin — no otp_code columns needed
+      const hashed = await hashPin(new_pin);
+      const { error } = await supabaseAdmin
+        .from('profiles')
+        .update({ transaction_pin: hashed })
+        .eq('id', user.id);
+
+      if (error) {
+        console.error('PIN update error:', error);
+        return jsonResponse({ success: false, message: 'Failed to save PIN. Please try again.' }, 500);
+      }
+
+      return jsonResponse({ success: true, message: 'Transaction PIN updated successfully' });
     }
 
-    return new Response(JSON.stringify({ success: true }), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
-  } catch (err: any) {
-    console.error("send-otp error:", err);
-    return new Response(JSON.stringify({ error: err.message ?? "Internal error" }), {
-      status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return jsonResponse({ success: false, message: 'Unknown action' }, 400);
+
+  } catch (err) {
+    console.error('send-otp error', err);
+    return jsonResponse({ success: false, message: 'Server error. Please try again.' }, 500);
   }
 });
