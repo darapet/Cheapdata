@@ -47,11 +47,11 @@ export default function BuyData() {
     setIsPinModalOpen(true);
   };
 
-  const executePurchase = () => {
+  const executePurchase = (pin: string) => {
     if (!selectedPlan) return;
-    
+
     buyData.mutate(
-      { data: { phone, plan_id: selectedPlan.plan_id, network, pin: "VERIFIED_BY_MODAL" } },
+      { data: { phone, plan_id: selectedPlan.plan_id, network, pin } },
       {
         onSuccess: (data) => {
           if (data.success) {
