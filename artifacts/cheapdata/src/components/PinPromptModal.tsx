@@ -9,7 +9,7 @@ import { Loader2 } from "lucide-react";
 interface PinPromptModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onSuccess: () => void;
+  onSuccess: (pin: string) => void;
   amount?: number;
   actionTitle?: string;
 }
@@ -31,16 +31,17 @@ export function PinPromptModal({ open, onOpenChange, onSuccess, amount, actionTi
       {
         onSuccess: (data) => {
           if (data.valid) {
+            const verifiedPin = pin;
             setPin("");
             onOpenChange(false);
-            onSuccess();
+            onSuccess(verifiedPin);
           } else {
-            toast({ title: "Error", description: "Invalid PIN", variant: "destructive" });
+            toast({ title: "Incorrect PIN", description: "The PIN you entered is wrong. Please try again.", variant: "destructive" });
             setPin("");
           }
         },
         onError: () => {
-          toast({ title: "Error", description: "Failed to verify PIN", variant: "destructive" });
+          toast({ title: "Error", description: "Failed to verify PIN. Please try again.", variant: "destructive" });
           setPin("");
         }
       }
@@ -48,7 +49,7 @@ export function PinPromptModal({ open, onOpenChange, onSuccess, amount, actionTi
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={(v) => { if (!v) setPin(""); onOpenChange(v); }}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>{actionTitle}</DialogTitle>
@@ -60,10 +61,11 @@ export function PinPromptModal({ open, onOpenChange, onSuccess, amount, actionTi
         <form onSubmit={handleSubmit} className="space-y-4 pt-4">
           <Input
             type="password"
+            inputMode="numeric"
             maxLength={4}
             value={pin}
             onChange={(e) => setPin(e.target.value.replace(/[^0-9]/g, ''))}
-            placeholder="0000"
+            placeholder="••••"
             className="text-center text-3xl tracking-[1em] h-16"
             autoFocus
           />
