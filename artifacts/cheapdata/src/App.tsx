@@ -3,12 +3,10 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
-// Layouts & Auth
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { AdminLayout } from "@/components/layout/AdminLayout";
 
-// User Pages
 import Login from "@/pages/Login";
 import Register from "@/pages/Register";
 import Dashboard from "@/pages/Dashboard";
@@ -16,15 +14,16 @@ import BuyData from "@/pages/BuyData";
 import BuyAirtime from "@/pages/BuyAirtime";
 import CableTV from "@/pages/CableTV";
 import Electricity from "@/pages/Electricity";
+import Education from "@/pages/Education";
 import FundWallet from "@/pages/FundWallet";
 import Transactions from "@/pages/Transactions";
 import Profile from "@/pages/Profile";
 
-// Admin Pages
 import AdminDashboard from "@/pages/admin/Dashboard";
 import AdminUsers from "@/pages/admin/Users";
 import AdminTransactions from "@/pages/admin/Transactions";
 import AdminSettings from "@/pages/admin/Settings";
+import AdminPlans from "@/pages/admin/Plans";
 
 import NotFound from "@/pages/not-found";
 
@@ -37,48 +36,45 @@ function Router() {
       <Route path="/login" component={Login} />
       <Route path="/register" component={Register} />
 
-      {/* Admin Routes */}
       <Route path="/admin">
         {() => <Redirect to="/admin/dashboard" />}
       </Route>
       <Route path="/admin/dashboard">
         {() => (
           <ProtectedRoute adminOnly>
-            <AdminLayout>
-              <AdminDashboard />
-            </AdminLayout>
+            <AdminLayout><AdminDashboard /></AdminLayout>
+          </ProtectedRoute>
+        )}
+      </Route>
+      <Route path="/admin/plans">
+        {() => (
+          <ProtectedRoute adminOnly>
+            <AdminLayout><AdminPlans /></AdminLayout>
           </ProtectedRoute>
         )}
       </Route>
       <Route path="/admin/users">
         {() => (
           <ProtectedRoute adminOnly>
-            <AdminLayout>
-              <AdminUsers />
-            </AdminLayout>
+            <AdminLayout><AdminUsers /></AdminLayout>
           </ProtectedRoute>
         )}
       </Route>
       <Route path="/admin/transactions">
         {() => (
           <ProtectedRoute adminOnly>
-            <AdminLayout>
-              <AdminTransactions />
-            </AdminLayout>
+            <AdminLayout><AdminTransactions /></AdminLayout>
           </ProtectedRoute>
         )}
       </Route>
       <Route path="/admin/settings">
         {() => (
           <ProtectedRoute adminOnly>
-            <AdminLayout>
-              <AdminSettings />
-            </AdminLayout>
+            <AdminLayout><AdminSettings /></AdminLayout>
           </ProtectedRoute>
         )}
       </Route>
 
-      {/* User Routes */}
       <Route path="/:rest*">
         {() => (
           <ProtectedRoute>
@@ -89,6 +85,7 @@ function Router() {
                 <Route path="/buy-airtime" component={BuyAirtime} />
                 <Route path="/cable-tv" component={CableTV} />
                 <Route path="/electricity" component={Electricity} />
+                <Route path="/education" component={Education} />
                 <Route path="/fund-wallet" component={FundWallet} />
                 <Route path="/transactions" component={Transactions} />
                 <Route path="/profile" component={Profile} />
