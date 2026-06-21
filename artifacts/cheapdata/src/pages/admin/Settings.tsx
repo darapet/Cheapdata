@@ -73,7 +73,10 @@ type SettingsForm = {
   cheapdatahub_api_key: string;
   cheapdatahub_funding_account: string;
   cheapdatahub_base_url: string;
-  brevo_api_key: string;
+  smtp_host: string;
+  smtp_port: number;
+  smtp_user: string;
+  smtp_pass: string;
   brevo_sender_email: string;
   brevo_sender_name: string;
   cheapdatahub_bank_name: string;
@@ -114,7 +117,10 @@ export default function AdminSettings() {
       cheapdatahub_api_key: "",
       cheapdatahub_funding_account: "",
       cheapdatahub_base_url: "",
-      brevo_api_key: "",
+      smtp_host: "smtp-relay.brevo.com",
+      smtp_port: 587,
+      smtp_user: "",
+      smtp_pass: "",
       brevo_sender_email: "",
       brevo_sender_name: "CheapDataHub",
       cheapdatahub_bank_name: "",
@@ -141,7 +147,10 @@ export default function AdminSettings() {
         cheapdatahub_api_key: settings.cheapdatahub_api_key ?? "",
         cheapdatahub_funding_account: settings.cheapdatahub_funding_account ?? "",
         cheapdatahub_base_url: settings.cheapdatahub_base_url ?? "",
-        brevo_api_key: settings.brevo_api_key ?? "",
+        smtp_host: (settings as any).smtp_host ?? "smtp-relay.brevo.com",
+        smtp_port: Number((settings as any).smtp_port) || 587,
+        smtp_user: (settings as any).smtp_user ?? "",
+        smtp_pass: (settings as any).smtp_pass ?? "",
         brevo_sender_email: settings.brevo_sender_email ?? "",
         brevo_sender_name: settings.brevo_sender_name ?? "CheapDataHub",
         cheapdatahub_bank_name: (settings as any).cheapdatahub_bank_name ?? "",
@@ -431,20 +440,38 @@ export default function AdminSettings() {
           </CardContent>
         </Card>
 
-        {/* Brevo Email */}
+        {/* Email — SMTP */}
         <Card>
           <CardHeader>
             <CardTitle className="text-base flex items-center gap-2">
-              Brevo Email
+              Email (SMTP)
               <Badge variant="secondary" className="text-xs">Email Service</Badge>
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <SecretInput id="brevo_api_key" label="Brevo API Key"
-              registration={register("brevo_api_key")}
-              hasSavedValue={!!settings?.brevo_api_key} />
+            <div className="rounded-md bg-blue-50 border border-blue-200 px-3 py-2 text-sm text-blue-800">
+              Using Brevo SMTP: log into Brevo → <strong>SMTP &amp; API</strong> tab → copy your SMTP key as the password below.
+              Host is <code className="bg-blue-100 px-1 rounded">smtp-relay.brevo.com</code>, port <code className="bg-blue-100 px-1 rounded">587</code>.
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="smtp_host">SMTP Host</Label>
+                <Input id="smtp_host" placeholder="smtp-relay.brevo.com" {...register("smtp_host")} />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="smtp_port">SMTP Port</Label>
+                <Input id="smtp_port" type="number" placeholder="587" {...register("smtp_port", { valueAsNumber: true })} />
+              </div>
+            </div>
             <div className="space-y-1.5">
-              <Label htmlFor="brevo_sender_email">Sender Email</Label>
+              <Label htmlFor="smtp_user">SMTP Username (your Brevo login email)</Label>
+              <Input id="smtp_user" type="email" placeholder="you@yourdomain.com" {...register("smtp_user")} />
+            </div>
+            <SecretInput id="smtp_pass" label="SMTP Password (Brevo SMTP Key)"
+              registration={register("smtp_pass")}
+              hasSavedValue={!!(settings as any)?.smtp_pass} />
+            <div className="space-y-1.5">
+              <Label htmlFor="brevo_sender_email">Sender Email (shown in From field)</Label>
               <Input id="brevo_sender_email" type="email" placeholder="noreply@yourdomain.com" {...register("brevo_sender_email")} />
             </div>
             <div className="space-y-1.5">
@@ -453,14 +480,14 @@ export default function AdminSettings() {
             </div>
             <TestResult result={brevoResult} />
             <Button type="button" variant="outline" size="sm"
-              onClick={handleTestBrevo} disabled={testBrevo.isPending || !settings?.brevo_api_key}
+              onClick={handleTestBrevo} disabled={testBrevo.isPending || !(settings as any)?.smtp_pass}
               className="flex items-center gap-2">
               {testBrevo.isPending
                 ? <><Loader2 className="h-4 w-4 animate-spin" /> Sending...</>
                 : <><FlaskConical className="h-4 w-4" /> Send Test Email</>}
             </Button>
-            {!settings?.brevo_api_key && (
-              <p className="text-xs text-gray-400">Save your Brevo API key first to enable testing.</p>
+            {!(settings as any)?.smtp_pass && (
+              <p className="text-xs text-gray-400">Save your SMTP password first to enable testing.</p>
             )}
           </CardContent>
         </Card>

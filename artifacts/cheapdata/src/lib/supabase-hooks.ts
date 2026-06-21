@@ -239,8 +239,16 @@ export function useAdminGetSettings(options?: any) {
   return useQuery({
     queryKey: options?.query?.queryKey ?? getAdminGetSettingsQueryKey(),
     queryFn: async () => {
-      const { data, error } = await supabase.from('system_settings').select('*').maybeSingle();
-      if (error) throw error;
+      const { data: session } = await supabase.auth.getSession();
+      const token = session.session?.access_token ?? '';
+      const r = await fetch('/api/admin/settings', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!r.ok) {
+        const err = await r.json() as { error?: string };
+        throw new Error(err.error ?? 'Failed to load settings');
+      }
+      const data = await r.json();
       return data ?? { active_payment_gateway: 'paystack', cheapdatahub_funding_account: '' };
     },
   });
@@ -250,38 +258,17 @@ export function useAdminUpdateSettings() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async ({ data }: { data: any }) => {
-      const { data: existing } = await supabase.from('system_settings').select('id').maybeSingle();
-      const payload: Record<string, any> = {
-        admin_email: data.admin_email,
-        active_payment_gateway: data.active_payment_gateway,
-        cheapdatahub_funding_account: data.cheapdatahub_funding_account,
-        cheapdatahub_base_url: data.cheapdatahub_base_url,
-        brevo_sender_email: data.brevo_sender_email,
-        brevo_sender_name: data.brevo_sender_name,
-        cheapdatahub_bank_name: data.cheapdatahub_bank_name ?? '',
-        cheapdatahub_bank_code: data.cheapdatahub_bank_code ?? '',
-        cheapdatahub_bank_account: data.cheapdatahub_bank_account ?? '',
-        cheapdatahub_account_name: data.cheapdatahub_account_name ?? '',
-        cheapdatahub_low_balance_threshold: Number(data.cheapdatahub_low_balance_threshold ?? 5000),
-        cheapdatahub_topup_amount: Number(data.cheapdatahub_topup_amount ?? 20000),
-        cheapdatahub_auto_fund: Boolean(data.cheapdatahub_auto_fund),
-      };
-      if (data.paystack_secret_key) payload.paystack_secret_key = data.paystack_secret_key;
-      if (data.paystack_public_key) payload.paystack_public_key = data.paystack_public_key;
-      if (data.flutterwave_secret_key) payload.flutterwave_secret_key = data.flutterwave_secret_key;
-      if (data.flutterwave_public_key) payload.flutterwave_public_key = data.flutterwave_public_key;
-      if (data.cheapdatahub_api_key) payload.cheapdatahub_api_key = data.cheapdatahub_api_key;
-      if (data.brevo_api_key) payload.brevo_api_key = data.brevo_api_key;
-
-      let error;
-      if (existing) {
-        ({ error } = await supabase.from('system_settings').update(payload).eq('id', existing.id));
-      } else {
-        ({ error } = await supabase.from('system_settings').insert(payload));
-      }
-      if (error) throw error;
+      const { data: session } = await supabase.auth.getSession();
+      const token = session.session?.access_token ?? '';
+      const r = await fetch('/api/admin/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify(data),
+      });
+      const body = await r.json() as { success?: boolean; error?: string };
+      if (!r.ok || body.error) throw new Error(body.error ?? 'Failed to save settings');
       queryClient.invalidateQueries({ queryKey: getAdminGetSettingsQueryKey() });
-      return { success: true, message: 'Settings updated.' };
+      return body;
     },
   });
 }
@@ -299,17 +286,19 @@ export function useAdminTestPaystack() {
   });
 }
 
-// ── Admin: Test Brevo ─────────────────────────────────────────────────────────
-// Routes through Supabase Edge Function — API key never seen by the browser.
+// ── Admin: Test SMTP (Brevo) ──────────────────────────────────────────────────
+// Routes through the API server — SMTP credentials never seen by the browser.
 export function useAdminTestBrevo() {
   return useMutation({
     mutationFn: async () => {
-      const r = await fetch(`${EDGE_BASE}/test-brevo`, {
+      const { data: session } = await supabase.auth.getSession();
+      const token = session.session?.access_token ?? '';
+      const r = await fetch('/api/admin/test-brevo', {
         method: 'POST',
-        headers: await authHeaders(),
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
       });
       const body = await r.json() as { ok?: boolean; message?: string; error?: string };
-      if (!r.ok || body.error) throw new Error(body.error ?? 'Brevo test failed.');
+      if (!r.ok || body.error) throw new Error(body.error ?? 'SMTP test failed.');
       return body.message ?? 'Test email sent';
     },
   });

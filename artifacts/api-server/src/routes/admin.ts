@@ -52,6 +52,8 @@ router.post("/admin/settings", requireAuth, async (req: AuthRequest, res: Respon
     cheapdatahub_low_balance_threshold: Number(body.cheapdatahub_low_balance_threshold ?? 5000),
     cheapdatahub_topup_amount: Number(body.cheapdatahub_topup_amount ?? 20000),
     cheapdatahub_auto_fund: Boolean(body.cheapdatahub_auto_fund),
+    smtp_host: (body.smtp_host as string) || "smtp-relay.brevo.com",
+    smtp_port: Number(body.smtp_port ?? 587),
   };
 
   // Only overwrite secret keys if a new value was provided
@@ -59,6 +61,8 @@ router.post("/admin/settings", requireAuth, async (req: AuthRequest, res: Respon
   if ((body.flutterwave_secret_key as string)?.trim()) payload.flutterwave_secret_key = (body.flutterwave_secret_key as string).trim();
   if ((body.cheapdatahub_api_key as string)?.trim()) payload.cheapdatahub_api_key = (body.cheapdatahub_api_key as string).trim();
   if ((body.brevo_api_key as string)?.trim()) payload.brevo_api_key = (body.brevo_api_key as string).trim();
+  if ((body.smtp_user as string)?.trim()) payload.smtp_user = (body.smtp_user as string).trim();
+  if ((body.smtp_pass as string)?.trim()) payload.smtp_pass = (body.smtp_pass as string).trim();
 
   const { data: existing } = await supabaseAdmin.from("system_settings").select("id").maybeSingle();
   let error;
@@ -196,49 +200,53 @@ router.post("/admin/test-paystack", requireAuth, async (req: AuthRequest, res: R
   }
 });
 
-// POST /api/admin/test-brevo — send a test email using the saved Brevo settings
+// POST /api/admin/test-brevo — send a test email via SMTP
 router.post("/admin/test-brevo", requireAuth, async (req: AuthRequest, res: Response) => {
   if (!(await isAdmin(req.userId!))) {
     res.status(403).json({ error: "Forbidden" }); return;
   }
   const settings = await getSettings();
-  const key = settings?.brevo_api_key?.trim();
-  const senderEmail = settings?.brevo_sender_email?.trim();
+  const smtpUser = (settings as any)?.smtp_user?.trim();
+  const smtpPass = (settings as any)?.smtp_pass?.trim();
+  const smtpHost = (settings as any)?.smtp_host?.trim() || "smtp-relay.brevo.com";
+  const smtpPort = Number((settings as any)?.smtp_port) || 587;
+  const senderEmail = settings?.brevo_sender_email?.trim() || smtpUser;
   const senderName = settings?.brevo_sender_name?.trim() || "CheapDataHub";
   const toEmail = (settings as any)?.admin_email?.trim() || ADMIN_EMAIL;
-  if (!key) {
-    res.status(400).json({ error: "No Brevo API key saved yet. Save your key first." }); return;
+
+  if (!smtpUser) {
+    res.status(400).json({ error: "SMTP username not saved. Fill in the SMTP Username field and save first." }); return;
   }
-  if (!senderEmail) {
-    res.status(400).json({ error: "Sender email is not configured. Please fill in the Sender Email field and save." }); return;
+  if (!smtpPass) {
+    res.status(400).json({ error: "SMTP password not saved. Fill in the SMTP Password field and save first." }); return;
   }
+
   try {
-    const r = await fetch("https://api.brevo.com/v3/smtp/email", {
-      method: "POST",
-      headers: { "api-key": key, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        sender: { name: senderName, email: senderEmail },
-        to: [{ email: toEmail, name: "Admin" }],
-        subject: "✅ Brevo Test Email — CheapDataHub",
-        htmlContent: `<div style="font-family:sans-serif;padding:24px;max-width:480px;border:1px solid #e5e7eb;border-radius:8px">
-          <h2 style="color:#4f46e5;margin-top:0">Brevo is working! ✓</h2>
-          <p style="color:#374151">This is a test email sent from your CheapDataHub admin settings to confirm your Brevo email integration is configured correctly.</p>
-          <hr style="border:none;border-top:1px solid #e5e7eb;margin:16px 0"/>
-          <p style="color:#6b7280;font-size:13px;margin:0">
-            <strong>To:</strong> ${toEmail}<br/>
-            <strong>From:</strong> ${senderName} &lt;${senderEmail}&gt;
-          </p>
-        </div>`,
-      }),
+    const nodemailer = await import("nodemailer");
+    const transporter = nodemailer.default.createTransport({
+      host: smtpHost,
+      port: smtpPort,
+      secure: false,
+      auth: { user: smtpUser, pass: smtpPass },
     });
-    if (r.ok) {
-      res.json({ ok: true, message: `Test email sent to ${toEmail}` });
-    } else {
-      const err = await r.json() as { message: string };
-      res.status(400).json({ error: `Brevo error: ${err.message}` });
-    }
+    await transporter.sendMail({
+      from: `"${senderName}" <${senderEmail}>`,
+      to: toEmail,
+      subject: "✅ SMTP Test Email — CheapDataHub",
+      html: `<div style="font-family:sans-serif;padding:24px;max-width:480px;border:1px solid #e5e7eb;border-radius:8px">
+        <h2 style="color:#4f46e5;margin-top:0">SMTP is working! ✓</h2>
+        <p style="color:#374151">This is a test email confirming your SMTP email integration is configured correctly.</p>
+        <hr style="border:none;border-top:1px solid #e5e7eb;margin:16px 0"/>
+        <p style="color:#6b7280;font-size:13px;margin:0">
+          <strong>To:</strong> ${toEmail}<br/>
+          <strong>From:</strong> ${senderName} &lt;${senderEmail}&gt;<br/>
+          <strong>SMTP Host:</strong> ${smtpHost}:${smtpPort}
+        </p>
+      </div>`,
+    });
+    res.json({ ok: true, message: `Test email sent to ${toEmail} via ${smtpHost}` });
   } catch (e: any) {
-    res.status(500).json({ error: `Could not reach Brevo: ${e.message}` });
+    res.status(400).json({ error: `SMTP error: ${e.message}` });
   }
 });
 
