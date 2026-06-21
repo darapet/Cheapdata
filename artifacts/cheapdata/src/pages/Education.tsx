@@ -141,10 +141,10 @@ export default function Education() {
     setIsPinModalOpen(true);
   };
 
-  const executePurchase = () => {
+  const executePurchase = (pin: string) => {
     if (!selectedPlan) return;
     buyEducation.mutate(
-      { data: { exam_body: examBody, plan_id: selectedPlan.plan_id, quantity: Number(quantity || 1), pin: "VERIFIED_BY_MODAL" } },
+      { data: { exam_body: examBody, plan_id: selectedPlan.plan_id, quantity: Number(quantity || 1), pin } },
       {
         onSuccess: (data) => {
           if (data.success) {
