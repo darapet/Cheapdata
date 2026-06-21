@@ -6,18 +6,17 @@ import {
 
   const ELECTRICITY_FEE = 150;
 
-  // CheapDataHub disco provider IDs
-  // Source: CheapDataHub API docs — disco_id is an integer
+  // CheapDataHub disco_id integers — match frontend disco names (case-insensitive)
   const DISCO_IDS: Record<string, number> = {
     ikedc: 1, 'ikeja electric': 1, ikeja: 1,
     ekedc: 2, 'eko electric': 2, eko: 2,
     aedc: 3, 'abuja electric': 3, abuja: 3,
     eedc: 4, 'enugu electric': 4, enugu: 4,
     ibedc: 5, 'ibadan electric': 5, ibadan: 5,
-    phedc: 6, 'portharcourt electric': 6, 'port harcourt': 6, ph: 6,
+    phedc: 6, phed: 6, 'portharcourt electric': 6, 'port harcourt': 6, ph: 6,
     kaedco: 7, 'kaduna electric': 7, kaduna: 7,
     kedco: 8, 'kano electric': 8, kano: 8,
-    jed: 9, 'jos electric': 9, jos: 9,
+    jed: 9, jedc: 9, 'jos electric': 9, jos: 9,
     bedc: 10, 'benin electric': 10, benin: 10,
     yedc: 11, 'yola electric': 11, yola: 11,
   };
@@ -54,16 +53,19 @@ import {
       if (settings?.cheapdatahub_api_key) {
         try {
           // Electricity API: POST /api/v1/resellers/electricity/purchase/
-          // Required: disco_id (integer), meter_number, amount, meter_type, phone
+          // Fields: disco_id (integer), meter_number, amount, meter_type, phone
           const discoKey = String(disco).toLowerCase().trim();
           const disco_id = DISCO_IDS[discoKey];
           if (!disco_id) {
             await refundWallet(supabaseAdmin, user.id, totalCharge, ref);
-            return jsonResponse({ success: false, message: `Unknown electricity provider: "${disco}". Supported: IKEDC, EKEDC, AEDC, EEDC, IBEDC, PHEDC, KAEDCO, KEDCO, JED, BEDC, YEDC.` }, 400);
+            return jsonResponse({
+              success: false,
+              message: `Unknown electricity provider: "${disco}". Supported: IKEDC, EKEDC, AEDC, EEDC, IBEDC, PHEDC/PHED, KAEDCO, KEDCO, JED/JEDC, BEDC, YEDC.`
+            }, 400);
           }
 
           const profile = await getUserProfile(supabaseAdmin, user.id);
-          const phone = phoneParam || profile?.phone || '';
+          const phone = phoneParam?.trim() || profile?.phone || '';
 
           const { ok, body } = await cheapdatahubCall(settings.cheapdatahub_api_key, 'electricity/purchase/', {
             disco_id, meter_number, meter_type, amount, phone,
@@ -86,9 +88,7 @@ import {
         await updateTxStatus(supabaseAdmin, ref, 'completed');
       }
 
-      const finalDesc = token_value
-        ? `${description} — Token: ${token_value}`
-        : description;
+      const finalDesc = token_value ? `${description} — Token: ${token_value}` : description;
       void sendReceipt(supabaseAdmin, user.id, finalDesc, totalCharge, ref, 'successful');
       return jsonResponse({
         success: true,
