@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, RefreshCw, Plus, Trash2, ToggleLeft, ToggleRight, Database } from "lucide-react";
+import { Loader2, RefreshCw, Plus, Trash2, ToggleLeft, ToggleRight, Database, ChevronDown, ChevronUp, Clock } from "lucide-react";
 import { formatNaira } from "@/lib/utils";
 
 const EDGE_BASE = (import.meta.env.VITE_SUPABASE_URL ?? '').replace(/\/$/, '') + '/functions/v1';
@@ -36,6 +36,8 @@ type Plan = {
 
 type NewPlan = Omit<Plan, "id" | "is_active"> & { is_active: boolean };
 
+type DebugEndpoint = { url: string; status: number | string; body_preview: string };
+
 const SERVICE_TABS = [
   { key: "data", label: "Data Plans", networks: ["MTN", "AIRTEL", "GLO", "9MOBILE"] },
   { key: "cable", label: "Cable TV", networks: ["DSTV", "GOTV", "STARTIMES"] },
@@ -49,13 +51,14 @@ function PlanRow({ plan, onToggle, onDelete }: { plan: Plan; onToggle: (id: numb
         <div className="flex items-center gap-2 flex-wrap">
           <span className="font-semibold text-gray-900 text-sm">{plan.plan_name}</span>
           <Badge variant="outline" className="text-xs">{plan.network}</Badge>
-          {plan.cheapdatahub_plan_id && <Badge variant="secondary" className="text-xs">ID: {plan.cheapdatahub_plan_id}</Badge>}
+          {plan.cheapdatahub_plan_id && <Badge variant="secondary" className="text-xs">CDH ID: {plan.cheapdatahub_plan_id}</Badge>}
         </div>
-        <div className="flex gap-3 mt-1 text-xs text-gray-500">
+        <div className="flex gap-3 mt-1 text-xs text-gray-500 flex-wrap">
           <span>Cost: {formatNaira(plan.wholesale_price)}</span>
           <span>Your Price: {formatNaira(plan.retail_price)}</span>
-          <span>Profit: {formatNaira(plan.retail_price - plan.wholesale_price)}</span>
-          {plan.validity && <span>Validity: {plan.validity}</span>}
+          <span className="text-green-600">Profit: {formatNaira(plan.retail_price - plan.wholesale_price)}</span>
+          {plan.data_size && <span>{plan.data_size}</span>}
+          {plan.validity && <span>· {plan.validity}</span>}
         </div>
       </div>
       <div className="flex gap-1 shrink-0">
@@ -71,11 +74,46 @@ function PlanRow({ plan, onToggle, onDelete }: { plan: Plan; onToggle: (id: numb
   );
 }
 
+function DebugPanel({ debug }: { debug: DebugEndpoint[] }) {
+  const [open, setOpen] = useState(false);
+  if (!debug?.length) return null;
+  return (
+    <div className="mt-3 border border-orange-200 rounded-lg bg-orange-50/50">
+      <button onClick={() => setOpen(v => !v)}
+        className="w-full flex items-center justify-between px-4 py-2 text-xs font-medium text-orange-700">
+        <span>Debug: {debug.length} endpoint(s) tried — click to see details</span>
+        {open ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+      </button>
+      {open && (
+        <div className="px-4 pb-3 space-y-2">
+          <p className="text-xs text-orange-600 mb-2">Share this with your developer to fix the API endpoint.</p>
+          {debug.map((d, i) => (
+            <div key={i} className="text-xs font-mono bg-white border border-orange-100 rounded p-2">
+              <div className="flex gap-2 items-center mb-1">
+                <span className={`font-semibold ${String(d.status).startsWith('2') ? 'text-green-600' : 'text-red-600'}`}>
+                  HTTP {d.status}
+                </span>
+                <span className="text-gray-500 break-all">{d.url}</span>
+              </div>
+              {d.body_preview && (
+                <pre className="text-gray-600 whitespace-pre-wrap break-all text-[10px] bg-gray-50 p-1.5 rounded max-h-24 overflow-auto">
+                  {d.body_preview}
+                </pre>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function AdminPlans() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState("data");
   const [syncing, setSyncing] = useState(false);
+  const [syncDebug, setSyncDebug] = useState<DebugEndpoint[] | null>(null);
   const [showAdd, setShowAdd] = useState(false);
   const [newPlan, setNewPlan] = useState<Partial<NewPlan>>({ service_type: "data", is_active: true });
 
@@ -137,6 +175,7 @@ export default function AdminPlans() {
 
   const handleSync = async () => {
     setSyncing(true);
+    setSyncDebug(null);
     try {
       const res = await fetch(`${EDGE_BASE}/sync-plans`, {
         method: 'POST',
@@ -147,17 +186,20 @@ export default function AdminPlans() {
 
       if (!res.ok) {
         toast({ title: "Sync Failed", description: result.error ?? "Unknown error", variant: "destructive" });
+        if (result.debug) setSyncDebug(result.debug);
         return;
       }
 
       queryClient.invalidateQueries({ queryKey: ["admin-plans"] });
 
       if (result.imported > 0) {
+        setSyncDebug(null);
         toast({
           title: `✓ Synced ${result.imported} plans`,
           description: result.message + (result.warnings?.length ? ` (${result.warnings.join('; ')})` : ''),
         });
       } else {
+        if (result.debug) setSyncDebug(result.debug);
         toast({
           title: "No Plans Imported",
           description: result.message ?? "CheapDataHub returned no plans. Check your API key and account status.",
@@ -182,7 +224,9 @@ export default function AdminPlans() {
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Plans Management</h1>
-          <p className="text-sm text-gray-500 mt-1">Sync from CheapDataHub or add plans manually. Markups: Data +₦50 · Cable +₦100 · WAEC +₦200</p>
+          <p className="text-sm text-gray-500 mt-1">
+            Sync from CheapDataHub or add plans manually. Markups: Data +₦{MARKUPS.data} · Cable +₦{MARKUPS.cable} · Education +₦{MARKUPS.education}
+          </p>
         </div>
         <div className="flex gap-2">
           <Button variant="outline" onClick={handleSync} disabled={syncing} className="flex items-center gap-2">
@@ -198,7 +242,7 @@ export default function AdminPlans() {
       {/* Tabs */}
       <div className="flex gap-1 border-b border-gray-200">
         {SERVICE_TABS.map(tab => (
-          <button key={tab.key} onClick={() => { setActiveTab(tab.key); setShowAdd(false); }}
+          <button key={tab.key} onClick={() => { setActiveTab(tab.key); setShowAdd(false); setSyncDebug(null); }}
             className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
               activeTab === tab.key ? "border-primary text-primary" : "border-transparent text-gray-500 hover:text-gray-700"
             }`}>
@@ -206,6 +250,9 @@ export default function AdminPlans() {
           </button>
         ))}
       </div>
+
+      {/* Debug panel — shown when sync fails */}
+      {syncDebug && <DebugPanel debug={syncDebug} />}
 
       {/* Add Plan Form */}
       {showAdd && (
@@ -241,8 +288,8 @@ export default function AdminPlans() {
                 <Label>Validity</Label>
                 <Input placeholder="30 days / Monthly" value={newPlan.validity ?? ""} onChange={e => setNewPlan(p => ({ ...p, validity: e.target.value }))} />
               </div>
-              <div className="space-y-1.5">
-                <Label>CheapDataHub Plan ID <span className="text-gray-400 text-xs">(from their Plan IDs page)</span></Label>
+              <div className="space-y-1.5 col-span-2">
+                <Label>CheapDataHub Plan ID <span className="text-gray-400 text-xs">(from their Plan IDs page — needed to route purchases correctly)</span></Label>
                 <Input placeholder="e.g. 101" value={newPlan.cheapdatahub_plan_id ?? ""} onChange={e => setNewPlan(p => ({ ...p, cheapdatahub_plan_id: e.target.value }))} />
               </div>
             </div>
@@ -271,6 +318,11 @@ export default function AdminPlans() {
                     <Database className="h-4 w-4 text-gray-400" />
                     {network}
                     <Badge variant="outline" className="text-xs">{netPlans.length} plans</Badge>
+                    {netPlans.filter(p => p.is_active).length > 0 && (
+                      <Badge variant="secondary" className="text-xs text-green-700 bg-green-100">
+                        {netPlans.filter(p => p.is_active).length} active
+                      </Badge>
+                    )}
                     {netPlans.length === 0 && <span className="text-xs text-orange-600 font-normal">No plans yet — sync or add manually</span>}
                   </CardTitle>
                 </CardHeader>
