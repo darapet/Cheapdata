@@ -235,6 +235,19 @@ export function useAdminGetUsers(options?: any) {
   });
 }
 
+async function safeApiJson<T>(r: Response): Promise<T> {
+  const ct = r.headers.get('content-type') ?? '';
+  if (!ct.includes('application/json')) {
+    const text = await r.text().catch(() => '');
+    throw new Error(
+      `API returned ${r.status} (not JSON). ` +
+      (text.slice(0, 200) || 'Empty body') +
+      ' — check that the API server is running and /api is reachable.'
+    );
+  }
+  return r.json() as Promise<T>;
+}
+
 export function useAdminGetSettings(options?: any) {
   return useQuery({
     queryKey: options?.query?.queryKey ?? getAdminGetSettingsQueryKey(),
@@ -245,10 +258,10 @@ export function useAdminGetSettings(options?: any) {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!r.ok) {
-        const err = await r.json() as { error?: string };
+        const err = await safeApiJson<{ error?: string }>(r);
         throw new Error(err.error ?? 'Failed to load settings');
       }
-      const data = await r.json();
+      const data = await safeApiJson<Record<string, unknown>>(r);
       return data ?? { active_payment_gateway: 'paystack', cheapdatahub_funding_account: '' };
     },
   });
@@ -265,7 +278,7 @@ export function useAdminUpdateSettings() {
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify(data),
       });
-      const body = await r.json() as { success?: boolean; error?: string };
+      const body = await safeApiJson<{ success?: boolean; error?: string }>(r);
       if (!r.ok || body.error) throw new Error(body.error ?? 'Failed to save settings');
       queryClient.invalidateQueries({ queryKey: getAdminGetSettingsQueryKey() });
       return body;

@@ -66,6 +66,17 @@ export default defineConfig({
     fs: {
       strict: true,
     },
+    // Proxy /api to the Express server when running outside Replit (locally).
+    // In Replit, the shared reverse-proxy routes /api before it reaches Vite,
+    // so this rule is never triggered there.
+    ...(process.env.REPL_ID === undefined && {
+      proxy: {
+        "/api": {
+          target: `http://localhost:${process.env.API_PORT ?? 5000}`,
+          changeOrigin: true,
+        },
+      },
+    }),
   },
   preview: {
     port,
