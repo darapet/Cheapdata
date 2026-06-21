@@ -5,6 +5,7 @@ import { useBuyEducation } from "@/lib/supabase-hooks";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+  import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { PinPromptModal } from "@/components/PinPromptModal";
 import { useToast } from "@/hooks/use-toast";
@@ -127,9 +128,16 @@ export default function Education() {
             {selectedPlan && (
               <div className="space-y-2">
                 <Label htmlFor="quantity" className="text-base">Quantity (PINs)</Label>
-                <Input id="quantity" type="number" min="1" max="10" value={quantity}
-                  onChange={e => setQuantity(e.target.value.replace(/[^0-9]/g, ""))}
-                  className="h-12 text-lg" />
+                <Select value={quantity} onValueChange={setQuantity}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select quantity" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="1">1 PIN</SelectItem>
+                    <SelectItem value="2">2 PINs</SelectItem>
+                    <SelectItem value="5">5 PINs</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
             )}
 
