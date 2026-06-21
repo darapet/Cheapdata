@@ -62,3 +62,30 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+
+  deploy-functions:
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Supabase CLI (pinned version, direct download)
+        run: |
+          curl -sSL https://github.com/supabase/cli/releases/download/v2.10.1/supabase_linux_amd64.tar.gz -o supabase.tar.gz
+          tar -xf supabase.tar.gz supabase
+          sudo mv supabase /usr/local/bin/supabase
+          supabase --version
+
+      - name: Deploy Edge Functions
+        run: |
+          supabase functions deploy verify-cable     --project-ref vumuvcghlumvenmnakyo --no-verify-jwt
+          supabase functions deploy verify-education --project-ref vumuvcghlumvenmnakyo --no-verify-jwt
+          supabase functions deploy send-otp         --project-ref vumuvcghlumvenmnakyo --no-verify-jwt
+          supabase functions deploy buy-data         --project-ref vumuvcghlumvenmnakyo --no-verify-jwt
+          supabase functions deploy buy-cable        --project-ref vumuvcghlumvenmnakyo --no-verify-jwt
+          supabase functions deploy buy-education    --project-ref vumuvcghlumvenmnakyo --no-verify-jwt
+          supabase functions deploy buy-airtime      --project-ref vumuvcghlumvenmnakyo --no-verify-jwt
+          supabase functions deploy buy-electricity  --project-ref vumuvcghlumvenmnakyo --no-verify-jwt
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
