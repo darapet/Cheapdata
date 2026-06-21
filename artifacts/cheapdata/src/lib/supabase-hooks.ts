@@ -65,7 +65,17 @@ export function useSetupPin() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Not authenticated');
       const hashedPin = await hashPin(pin);
-      const { error } = await supabase.from('profiles').update({ transaction_pin: hashedPin, is_pin_set: true }).eq('id', user.id);
+      // Use upsert so this works even if the profile row was never created.
+      // If the row already exists (id conflict) it updates; otherwise it inserts.
+      const { error } = await supabase.from('profiles').upsert(
+        {
+          id: user.id,
+          email: user.email ?? '',
+          transaction_pin: hashedPin,
+          is_pin_set: true,
+        },
+        { onConflict: 'id' }
+      );
       if (error) throw error;
       return { success: true };
     },
