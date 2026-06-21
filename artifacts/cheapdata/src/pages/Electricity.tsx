@@ -8,15 +8,17 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { PinPromptModal } from "@/components/PinPromptModal";
 import { useToast } from "@/hooks/use-toast";
 import { formatNaira, cn } from "@/lib/utils";
-import { Loader2, Zap } from "lucide-react";
+import { Loader2, Zap, Info } from "lucide-react";
+
+const SERVICE_FEE = 150;
 
 const discos = [
   "EKEDC", "IKEDC", "AEDC", "PHED", "EEDC", "KEDCO", "IBEDC", "BEDC", "JEDC", "YEDC"
 ];
 
 export default function Electricity() {
-  const [disco, setDisco] = useState<string>("EKEDC");
-  const [meterType, setMeterType] = useState<string>("prepaid");
+  const [disco, setDisco] = useState("EKEDC");
+  const [meterType, setMeterType] = useState("prepaid");
   const [meterNumber, setMeterNumber] = useState("");
   const [amount, setAmount] = useState("");
   const [isPinModalOpen, setIsPinModalOpen] = useState(false);
@@ -24,14 +26,17 @@ export default function Electricity() {
 
   const buyElectricity = useBuyElectricity();
 
+  const amountNum = Number(amount) || 0;
+  const total = amountNum > 0 ? amountNum + SERVICE_FEE : 0;
+
   const handleInitiatePurchase = (e: React.FormEvent) => {
     e.preventDefault();
     if (!meterNumber) {
       toast({ title: "Error", description: "Please enter a valid meter number", variant: "destructive" });
       return;
     }
-    if (!amount || Number(amount) < 500) {
-      toast({ title: "Error", description: "Minimum amount is ₦500", variant: "destructive" });
+    if (!amount || amountNum < 500) {
+      toast({ title: "Error", description: "Minimum electricity amount is ₦500", variant: "destructive" });
       return;
     }
     setIsPinModalOpen(true);
@@ -39,11 +44,11 @@ export default function Electricity() {
 
   const executePurchase = () => {
     buyElectricity.mutate(
-      { data: { meter_number: meterNumber, disco, amount: Number(amount), meter_type: meterType, pin: "VERIFIED_BY_MODAL" } },
+      { data: { meter_number: meterNumber, disco, amount: amountNum, meter_type: meterType, pin: "VERIFIED_BY_MODAL" } },
       {
         onSuccess: (data) => {
           if (data.success) {
-            toast({ title: "Success", description: data.message });
+            toast({ title: "Success!", description: data.message });
             setMeterNumber("");
             setAmount("");
           } else {
@@ -52,7 +57,7 @@ export default function Electricity() {
         },
         onError: (err: any) => {
           toast({ title: "Error", description: err.message || "An unexpected error occurred", variant: "destructive" });
-        }
+        },
       }
     );
   };
@@ -77,9 +82,7 @@ export default function Electricity() {
                   <SelectValue placeholder="Select Provider" />
                 </SelectTrigger>
                 <SelectContent>
-                  {discos.map((d) => (
-                    <SelectItem key={d} value={d}>{d}</SelectItem>
-                  ))}
+                  {discos.map(d => <SelectItem key={d} value={d}>{d}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
@@ -87,20 +90,12 @@ export default function Electricity() {
             <div className="space-y-2">
               <Label className="text-base">Meter Type</Label>
               <div className="flex gap-4">
-                <Button 
-                  type="button" 
-                  variant={meterType === "prepaid" ? "default" : "outline"}
-                  onClick={() => setMeterType("prepaid")}
-                  className="w-full h-12"
-                >
+                <Button type="button" variant={meterType === "prepaid" ? "default" : "outline"}
+                  onClick={() => setMeterType("prepaid")} className="w-full h-12">
                   Prepaid
                 </Button>
-                <Button 
-                  type="button" 
-                  variant={meterType === "postpaid" ? "default" : "outline"}
-                  onClick={() => setMeterType("postpaid")}
-                  className="w-full h-12"
-                >
+                <Button type="button" variant={meterType === "postpaid" ? "default" : "outline"}
+                  onClick={() => setMeterType("postpaid")} className="w-full h-12">
                   Postpaid
                 </Button>
               </div>
@@ -108,47 +103,50 @@ export default function Electricity() {
 
             <div className="space-y-2">
               <Label htmlFor="meterNumber" className="text-base">Meter Number</Label>
-              <Input
-                id="meterNumber"
-                type="text"
-                value={meterNumber}
-                onChange={(e) => setMeterNumber(e.target.value.replace(/[^0-9]/g, ''))}
-                placeholder="Enter meter number"
-                className="h-12 text-lg"
-              />
+              <Input id="meterNumber" type="text" value={meterNumber}
+                onChange={e => setMeterNumber(e.target.value.replace(/[^0-9]/g, ""))}
+                placeholder="Enter meter number" className="h-12 text-lg" />
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="amount" className="text-base">Amount (₦)</Label>
-              <Input
-                id="amount"
-                type="text"
-                value={amount}
-                onChange={(e) => setAmount(e.target.value.replace(/[^0-9]/g, ''))}
-                placeholder="1000"
-                className="h-12 text-lg font-bold"
-              />
+              <Label htmlFor="amount" className="text-base">Electricity Amount (₦)</Label>
+              <Input id="amount" type="text" value={amount}
+                onChange={e => setAmount(e.target.value.replace(/[^0-9]/g, ""))}
+                placeholder="1000" className="h-12 text-lg font-bold" />
             </div>
 
-            <Button 
-              type="submit" 
-              className="w-full h-14 text-lg" 
-              disabled={!meterNumber || !amount || buyElectricity.isPending}
-            >
+            {/* Fee breakdown */}
+            {amountNum >= 500 && (
+              <div className="rounded-xl bg-gray-50 border border-gray-200 p-4 space-y-2 text-sm">
+                <div className="flex justify-between text-gray-600">
+                  <span>Electricity units</span>
+                  <span>{formatNaira(amountNum)}</span>
+                </div>
+                <div className="flex justify-between text-gray-500">
+                  <span className="flex items-center gap-1">
+                    <Info className="h-3.5 w-3.5" /> Service fee
+                  </span>
+                  <span>{formatNaira(SERVICE_FEE)}</span>
+                </div>
+                <div className="flex justify-between font-bold text-gray-900 border-t border-gray-200 pt-2">
+                  <span>Total deducted from wallet</span>
+                  <span className="text-primary">{formatNaira(total)}</span>
+                </div>
+              </div>
+            )}
+
+            <Button type="submit" className="w-full h-14 text-lg"
+              disabled={!meterNumber || !amount || amountNum < 500 || buyElectricity.isPending}>
               {buyElectricity.isPending ? <Loader2 className="h-5 w-5 animate-spin mr-2" /> : null}
-              {buyElectricity.isPending ? "Processing..." : `Pay ${amount ? formatNaira(Number(amount)) : '₦0.00'}`}
+              {buyElectricity.isPending ? "Processing..." : total > 0 ? `Pay ${formatNaira(total)}` : "Enter Amount"}
             </Button>
           </form>
         </CardContent>
       </Card>
 
-      <PinPromptModal 
-        open={isPinModalOpen} 
-        onOpenChange={setIsPinModalOpen}
-        onSuccess={executePurchase}
-        amount={Number(amount)}
-        actionTitle="Confirm Electricity Payment"
-      />
+      <PinPromptModal open={isPinModalOpen} onOpenChange={setIsPinModalOpen}
+        onSuccess={executePurchase} amount={total}
+        actionTitle="Confirm Electricity Payment" />
     </div>
   );
 }

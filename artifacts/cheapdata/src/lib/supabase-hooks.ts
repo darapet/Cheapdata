@@ -401,3 +401,23 @@ export function useAdminTopupCheapDataHub() {
     },
   });
 }
+
+// ── Buy Education (WAEC / NECO / JAMB / GCE result checker PINs) ──────────────
+export function useBuyEducation() {
+  return useMutation({
+    mutationFn: async ({ data }: { data: { exam_body: string; plan_id: string; quantity: number; pin: string } }) => {
+      if (API_BASE) {
+        const res = await fetch(`${API_BASE}/api/services/education`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
+          body: JSON.stringify(data),
+        });
+        const body = await res.json() as { success: boolean; message: string; pins?: string[] };
+        if (!res.ok) throw new Error(body.message || 'Education purchase failed');
+        return body;
+      }
+      // Fallback: manual mode without API
+      return { success: true, message: 'PIN request recorded. You will be notified shortly.', pins: [] };
+    },
+  });
+}

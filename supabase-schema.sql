@@ -38,6 +38,7 @@ CREATE TABLE IF NOT EXISTS public.data_plans (
   plan_id TEXT NOT NULL UNIQUE,
   validity TEXT,
   cheapdatahub_plan_id TEXT,
+  service_type TEXT NOT NULL DEFAULT 'data',
   is_active BOOLEAN NOT NULL DEFAULT true,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -105,6 +106,7 @@ CREATE TABLE IF NOT EXISTS public.system_settings (
 -- ─── Migration: add ALL columns to existing system_settings table ──────────────
 -- Run ALL of these in Supabase SQL Editor (safe to run multiple times):
 ALTER TABLE public.data_plans ADD COLUMN IF NOT EXISTS cheapdatahub_plan_id TEXT;
+ALTER TABLE public.data_plans ADD COLUMN IF NOT EXISTS service_type TEXT NOT NULL DEFAULT 'data';
 
 ALTER TABLE public.system_settings ADD COLUMN IF NOT EXISTS admin_email TEXT;
 ALTER TABLE public.system_settings ADD COLUMN IF NOT EXISTS paystack_public_key TEXT;
@@ -164,3 +166,31 @@ ON CONFLICT (plan_id) DO NOTHING;
 INSERT INTO public.system_settings (active_payment_gateway, cheapdatahub_funding_account, brevo_sender_name)
 SELECT 'paystack', 'Add your bank account in Admin → Settings', 'CheapDataHub'
 WHERE NOT EXISTS (SELECT 1 FROM public.system_settings);
+
+-- ─── Seed Cable TV plans (wholesale + ₦100 markup) ───────────────────────────
+INSERT INTO public.data_plans (network, plan_name, data_size, retail_price, wholesale_price, plan_id, validity, service_type, is_active) VALUES
+('DSTV', 'DStv Padi', '', 2600, 2500, 'cable-dstv-padi', 'Monthly', 'cable', true),
+('DSTV', 'DStv Yanga', '', 3700, 3600, 'cable-dstv-yanga', 'Monthly', 'cable', true),
+('DSTV', 'DStv Confam', '', 6400, 6300, 'cable-dstv-confam', 'Monthly', 'cable', true),
+('DSTV', 'DStv Compact', '', 10600, 10500, 'cable-dstv-compact', 'Monthly', 'cable', true),
+('DSTV', 'DStv Compact Plus', '', 16700, 16600, 'cable-dstv-compact-plus', 'Monthly', 'cable', true),
+('DSTV', 'DStv Premium', '', 24600, 24500, 'cable-dstv-premium', 'Monthly', 'cable', true),
+('GOTV', 'GOtv Smallie', '', 1300, 1200, 'cable-gotv-smallie', 'Monthly', 'cable', true),
+('GOTV', 'GOtv Jinja', '', 2300, 2200, 'cable-gotv-jinja', 'Monthly', 'cable', true),
+('GOTV', 'GOtv Jolli', '', 3800, 3700, 'cable-gotv-jolli', 'Monthly', 'cable', true),
+('GOTV', 'GOtv Max', '', 5600, 5500, 'cable-gotv-max', 'Monthly', 'cable', true),
+('GOTV', 'GOtv Supa', '', 6600, 6500, 'cable-gotv-supa', 'Monthly', 'cable', true),
+('STARTIMES', 'Nova', '', 1000, 900, 'cable-st-nova', 'Monthly', 'cable', true),
+('STARTIMES', 'Basic', '', 1800, 1700, 'cable-st-basic', 'Monthly', 'cable', true),
+('STARTIMES', 'Smart', '', 2300, 2200, 'cable-st-smart', 'Monthly', 'cable', true),
+('STARTIMES', 'Classic', '', 2600, 2500, 'cable-st-classic', 'Monthly', 'cable', true),
+('STARTIMES', 'Super', '', 4300, 4200, 'cable-st-super', 'Monthly', 'cable', true)
+ON CONFLICT (plan_id) DO NOTHING;
+
+-- ─── Seed Education / Exam plans (wholesale + ₦200 markup) ───────────────────
+INSERT INTO public.data_plans (network, plan_name, data_size, retail_price, wholesale_price, plan_id, validity, service_type, is_active) VALUES
+('WAEC', 'WAEC Result Checker PIN', '', 1200, 1000, 'edu-waec-result', '', 'education', true),
+('NECO', 'NECO Result Checker PIN', '', 1000, 800, 'edu-neco-result', '', 'education', true),
+('JAMB', 'JAMB Result Checker', '', 700, 500, 'edu-jamb-result', '', 'education', true),
+('GCE', 'GCE Result Checker PIN', '', 1200, 1000, 'edu-gce-result', '', 'education', true)
+ON CONFLICT (plan_id) DO NOTHING;

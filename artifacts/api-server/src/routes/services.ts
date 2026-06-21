@@ -7,6 +7,8 @@ import crypto from "crypto";
 
 const router = Router();
 
+const ELECTRICITY_FEE = 150; // ₦150 service fee on every electricity purchase
+
 function hashPin(pin: string): string {
   return crypto.createHash("sha256").update(pin + "cheapdatahub_salt").digest("hex");
 }
@@ -27,13 +29,10 @@ async function getUserProfile(userId: string) {
   return data;
 }
 
-// Network provider IDs for CheapDataHub.ng
-// MTN=1, Airtel=2, Glo=3, 9Mobile=4 (verify from your CheapDataHub dashboard)
 const PROVIDER_IDS: Record<string, number> = {
   MTN: 1, AIRTEL: 2, GLO: 3, "9MOBILE": 4,
 };
 
-// Make a CheapDataHub API call and return {success, data, message}
 async function cheapdatahubCall(apiKey: string, endpoint: string, payload: Record<string, unknown>) {
   const url = `https://www.cheapdatahub.ng/api/v1/resellers/${endpoint}`;
   const res = await fetch(url, {
@@ -42,12 +41,10 @@ async function cheapdatahubCall(apiKey: string, endpoint: string, payload: Recor
     body: JSON.stringify(payload),
   });
   const body = await res.json() as Record<string, unknown>;
-  // CheapDataHub returns { status: true/false } or { code: "success"/"failure" }
   const ok = res.ok && (body.status === true || body.code === "success" || body.success === true);
   return { ok, body };
 }
 
-// Deduct from wallet and record transaction
 async function deductWallet(userId: string, amount: number, description: string, reference: string) {
   const { data: profile } = await supabaseAdmin.from("profiles").select("wallet_balance").eq("id", userId).single();
   if (!profile || profile.wallet_balance < amount) return { success: false, message: "Insufficient wallet balance. Please fund your wallet." };
@@ -59,7 +56,6 @@ async function deductWallet(userId: string, amount: number, description: string,
   return { success: true, newBalance };
 }
 
-// Refund wallet if service delivery fails
 async function refundWallet(userId: string, amount: number, reference: string) {
   const { data: profile } = await supabaseAdmin.from("profiles").select("wallet_balance").eq("id", userId).single();
   const newBalance = (profile?.wallet_balance ?? 0) + amount;
@@ -67,7 +63,6 @@ async function refundWallet(userId: string, amount: number, reference: string) {
   await supabaseAdmin.from("wallet_fundings").update({ status: "refunded" }).eq("reference", reference);
 }
 
-// Mark transaction as completed/failed
 async function updateTxStatus(reference: string, status: string) {
   await supabaseAdmin.from("wallet_fundings").update({ status }).eq("reference", reference);
 }
@@ -103,7 +98,6 @@ router.post("/services/data", requireAuth, async (req: AuthRequest, res: Respons
     const settings = await getSettings();
     if (settings?.cheapdatahub_api_key) {
       const providerId = PROVIDER_IDS[network.toUpperCase()] ?? 1;
-      // Use cheapdatahub_plan_id if set in DB, otherwise fall back to amount-based call
       const payload: Record<string, unknown> = {
         provider_id: providerId,
         phone_number: phone,
@@ -112,7 +106,7 @@ router.post("/services/data", requireAuth, async (req: AuthRequest, res: Respons
       if (plan.cheapdatahub_plan_id) {
         payload.plan_id = Number(plan.cheapdatahub_plan_id);
       } else {
-        payload.amount = plan.retail_price;
+        payload.amount = plan.wholesale_price ?? plan.retail_price;
       }
       try {
         const { ok, body } = await cheapdatahubCall(settings.cheapdatahub_api_key, "data/purchase/", payload);
@@ -132,7 +126,6 @@ router.post("/services/data", requireAuth, async (req: AuthRequest, res: Respons
         return;
       }
     } else {
-      // No API key — mark as completed (manual fulfillment mode)
       await updateTxStatus(ref, "completed");
     }
 
@@ -163,10 +156,7 @@ router.post("/services/airtime", requireAuth, async (req: AuthRequest, res: Resp
       const providerId = PROVIDER_IDS[network.toUpperCase()] ?? 1;
       try {
         const { ok, body } = await cheapdatahubCall(settings.cheapdatahub_api_key, "airtime/purchase/", {
-          provider_id: providerId,
-          phone_number: phone,
-          amount,
-          request_id: ref,
+          provider_id: providerId, phone_number: phone, amount, request_id: ref,
         });
         if (!ok) {
           await refundWallet(req.userId!, amount, ref);
@@ -196,6 +186,9 @@ router.post("/services/airtime", requireAuth, async (req: AuthRequest, res: Resp
 });
 
 // ─── POST /api/services/cable ─────────────────────────────────────────────────
+// Prices come from data_plans table (service_type='cable').
+// retail_price = what user pays (includes +₦100 markup).
+// wholesale_price = what CheapDataHub charges.
 router.post("/services/cable", requireAuth, async (req: AuthRequest, res: Response) => {
   try {
     const { smart_card_number, cable_provider, plan_id, pin } = req.body as { smart_card_number: string; cable_provider: string; plan_id: string; pin: string };
@@ -203,41 +196,42 @@ router.post("/services/cable", requireAuth, async (req: AuthRequest, res: Respon
     const pinValid = await verifyUserPin(req.userId!, pin);
     if (!pinValid) { res.status(403).json({ success: false, message: "Invalid transaction PIN" }); return; }
 
-    const cablePrices: Record<string, number> = {
-      "dstv-padi": 2950, "dstv-yanga": 4150, "dstv-confam": 6200, "dstv-compact": 10500,
-      "dstv-compact-plus": 16600, "dstv-premium": 24500, "gotv-smallie": 1575,
-      "gotv-jinja": 2715, "gotv-jolli": 4115, "gotv-max": 7200,
-      "startimes-nova": 900, "startimes-basic": 1700, "startimes-smart": 2200,
-      "startimes-classic": 2500, "startimes-super": 4200,
-    };
-    const price = cablePrices[plan_id] || 2000;
+    // Fetch plan from DB (service_type=cable)
+    const { data: plan } = await supabaseAdmin.from("data_plans").select("*")
+      .eq("plan_id", plan_id).eq("service_type", "cable").single();
+    if (!plan) { res.status(404).json({ success: false, message: "Cable plan not found" }); return; }
+
+    const retailPrice = plan.retail_price;      // user is charged this
+    const wholesalePrice = plan.wholesale_price ?? (retailPrice - 100); // CheapDataHub gets this
+
     const ref = makeRef("CABLE");
-    const description = `${cable_provider} Subscription — ${smart_card_number}`;
-    const deduct = await deductWallet(req.userId!, price, description, ref);
+    const description = `${cable_provider} ${plan.plan_name} — ${smart_card_number}`;
+    const deduct = await deductWallet(req.userId!, retailPrice, description, ref);
     if (!deduct.success) { res.status(400).json({ success: false, message: deduct.message }); return; }
 
     const settings = await getSettings();
     if (settings?.cheapdatahub_api_key) {
       try {
-        const { ok, body } = await cheapdatahubCall(settings.cheapdatahub_api_key, "cable/purchase/", {
+        const cdhPayload: Record<string, unknown> = {
           provider: cable_provider.toLowerCase(),
           smart_card_number,
-          plan_id,
-          amount: price,
+          amount: wholesalePrice,
           request_id: ref,
-        });
+        };
+        if (plan.cheapdatahub_plan_id) cdhPayload.plan_id = plan.cheapdatahub_plan_id;
+        const { ok, body } = await cheapdatahubCall(settings.cheapdatahub_api_key, "cable/purchase/", cdhPayload);
         if (!ok) {
-          await refundWallet(req.userId!, price, ref);
+          await refundWallet(req.userId!, retailPrice, ref);
           const msg = (body.message ?? body.detail ?? "Subscription failed") as string;
-          sendReceipt(req.userId!, "debit", description, price, ref, "failed");
+          sendReceipt(req.userId!, "debit", description, retailPrice, ref, "failed");
           res.status(400).json({ success: false, message: `Cable subscription failed: ${msg}. Your wallet has been refunded.` });
           return;
         }
         await updateTxStatus(ref, "completed");
       } catch (err) {
         req.log.error({ err }, "CheapDataHub cable API error — refunding");
-        await refundWallet(req.userId!, price, ref);
-        sendReceipt(req.userId!, "debit", description, price, ref, "failed");
+        await refundWallet(req.userId!, retailPrice, ref);
+        sendReceipt(req.userId!, "debit", description, retailPrice, ref, "failed");
         res.status(502).json({ success: false, message: "Could not reach the cable provider. Your wallet has been refunded." });
         return;
       }
@@ -245,8 +239,8 @@ router.post("/services/cable", requireAuth, async (req: AuthRequest, res: Respon
       await updateTxStatus(ref, "completed");
     }
 
-    sendReceipt(req.userId!, "debit", description, price, ref, "successful");
-    res.json({ success: true, message: `${cable_provider} subscription activated for ${smart_card_number}!`, reference: ref, new_balance: deduct.newBalance });
+    sendReceipt(req.userId!, "debit", description, retailPrice, ref, "successful");
+    res.json({ success: true, message: `${cable_provider} ${plan.plan_name} activated for ${smart_card_number}!`, reference: ref, new_balance: deduct.newBalance });
   } catch (err) {
     req.log.error({ err }, "Error buying cable");
     res.status(500).json({ success: false, message: "Failed to process cable subscription" });
@@ -254,34 +248,36 @@ router.post("/services/cable", requireAuth, async (req: AuthRequest, res: Respon
 });
 
 // ─── POST /api/services/electricity ──────────────────────────────────────────
+// User enters the electricity amount they want (e.g. ₦2,000).
+// We charge them amount + ₦150 service fee from their wallet.
+// CheapDataHub gets exactly the amount the user entered (₦2,000 in units).
+// Admin profit = ₦150 per transaction.
 router.post("/services/electricity", requireAuth, async (req: AuthRequest, res: Response) => {
   try {
     const { meter_number, disco, amount, meter_type, pin } = req.body as { meter_number: string; disco: string; amount: number; meter_type: string; pin: string };
 
     const pinValid = await verifyUserPin(req.userId!, pin);
     if (!pinValid) { res.status(403).json({ success: false, message: "Invalid transaction PIN" }); return; }
-    if (!amount || amount < 1000) { res.status(400).json({ success: false, message: "Minimum electricity amount is ₦1,000" }); return; }
+    if (!amount || amount < 500) { res.status(400).json({ success: false, message: "Minimum electricity amount is ₦500" }); return; }
 
+    const totalCharge = amount + ELECTRICITY_FEE; // deduct from wallet
     const ref = makeRef("ELEC");
-    const description = `${disco} Electricity — Meter ${meter_number}`;
-    const deduct = await deductWallet(req.userId!, amount, description, ref);
+    const description = `${disco} Electricity ₦${amount.toLocaleString()} — Meter ${meter_number}`;
+    const deduct = await deductWallet(req.userId!, totalCharge, description, ref);
     if (!deduct.success) { res.status(400).json({ success: false, message: deduct.message }); return; }
 
     const settings = await getSettings();
     let token: string | null = null;
     if (settings?.cheapdatahub_api_key) {
       try {
+        // CheapDataHub gets only the electricity amount (not the fee)
         const { ok, body } = await cheapdatahubCall(settings.cheapdatahub_api_key, "electricity/purchase/", {
-          disco: disco.toLowerCase(),
-          meter_number,
-          meter_type,
-          amount,
-          request_id: ref,
+          disco: disco.toLowerCase(), meter_number, meter_type, amount, request_id: ref,
         });
         if (!ok) {
-          await refundWallet(req.userId!, amount, ref);
+          await refundWallet(req.userId!, totalCharge, ref);
           const msg = (body.message ?? body.detail ?? "Electricity purchase failed") as string;
-          sendReceipt(req.userId!, "debit", description, amount, ref, "failed");
+          sendReceipt(req.userId!, "debit", description, totalCharge, ref, "failed");
           res.status(400).json({ success: false, message: `Electricity purchase failed: ${msg}. Your wallet has been refunded.` });
           return;
         }
@@ -289,8 +285,8 @@ router.post("/services/electricity", requireAuth, async (req: AuthRequest, res: 
         await updateTxStatus(ref, "completed");
       } catch (err) {
         req.log.error({ err }, "CheapDataHub electricity API error — refunding");
-        await refundWallet(req.userId!, amount, ref);
-        sendReceipt(req.userId!, "debit", description, amount, ref, "failed");
+        await refundWallet(req.userId!, totalCharge, ref);
+        sendReceipt(req.userId!, "debit", description, totalCharge, ref, "failed");
         res.status(502).json({ success: false, message: "Could not reach the electricity provider. Your wallet has been refunded." });
         return;
       }
@@ -299,11 +295,76 @@ router.post("/services/electricity", requireAuth, async (req: AuthRequest, res: 
     }
 
     const finalDesc = token ? `${description} | Token: ${token}` : description;
-    sendReceipt(req.userId!, "debit", finalDesc, amount, ref, "successful");
+    sendReceipt(req.userId!, "debit", finalDesc, totalCharge, ref, "successful");
     res.json({ success: true, message: token ? `Token: ${token}` : `Electricity payment processed for meter ${meter_number}`, token, reference: ref, new_balance: deduct.newBalance });
   } catch (err) {
     req.log.error({ err }, "Error buying electricity");
     res.status(500).json({ success: false, message: "Failed to process electricity purchase" });
+  }
+});
+
+// ─── POST /api/services/education ────────────────────────────────────────────
+// WAEC / NECO / JAMB / GCE result checker PINs.
+// retail_price = user's price (includes +₦200 markup).
+// wholesale_price = what CheapDataHub charges.
+router.post("/services/education", requireAuth, async (req: AuthRequest, res: Response) => {
+  try {
+    const { exam_body, plan_id, quantity = 1, pin } = req.body as { exam_body: string; plan_id: string; quantity: number; pin: string };
+
+    const pinValid = await verifyUserPin(req.userId!, pin);
+    if (!pinValid) { res.status(403).json({ success: false, message: "Invalid transaction PIN" }); return; }
+
+    const { data: plan } = await supabaseAdmin.from("data_plans").select("*")
+      .eq("plan_id", plan_id).eq("service_type", "education").single();
+    if (!plan) { res.status(404).json({ success: false, message: "Education plan not found" }); return; }
+
+    const qty = Math.max(1, Math.min(10, Number(quantity)));
+    const totalRetail = plan.retail_price * qty;
+    const wholesalePerPin = plan.wholesale_price ?? (plan.retail_price - 200);
+
+    const ref = makeRef("EDU");
+    const description = `${exam_body} Result Checker × ${qty}`;
+    const deduct = await deductWallet(req.userId!, totalRetail, description, ref);
+    if (!deduct.success) { res.status(400).json({ success: false, message: deduct.message }); return; }
+
+    const settings = await getSettings();
+    let pins: string[] = [];
+    if (settings?.cheapdatahub_api_key) {
+      try {
+        const cdhPayload: Record<string, unknown> = {
+          exam_body: exam_body.toLowerCase(),
+          quantity: qty,
+          amount: wholesalePerPin * qty,
+          request_id: ref,
+        };
+        if (plan.cheapdatahub_plan_id) cdhPayload.plan_id = plan.cheapdatahub_plan_id;
+        const { ok, body } = await cheapdatahubCall(settings.cheapdatahub_api_key, "education/purchase/", cdhPayload);
+        if (!ok) {
+          await refundWallet(req.userId!, totalRetail, ref);
+          const msg = (body.message ?? body.detail ?? "Education purchase failed") as string;
+          sendReceipt(req.userId!, "debit", description, totalRetail, ref, "failed");
+          res.status(400).json({ success: false, message: `${exam_body} PIN purchase failed: ${msg}. Your wallet has been refunded.` });
+          return;
+        }
+        const bodyData = body.data as Record<string, unknown> | undefined;
+        pins = (body.pins ?? bodyData?.pins ?? []) as string[];
+        await updateTxStatus(ref, "completed");
+      } catch (err) {
+        req.log.error({ err }, "CheapDataHub education API error — refunding");
+        await refundWallet(req.userId!, totalRetail, ref);
+        sendReceipt(req.userId!, "debit", description, totalRetail, ref, "failed");
+        res.status(502).json({ success: false, message: "Could not reach the education provider. Your wallet has been refunded." });
+        return;
+      }
+    } else {
+      await updateTxStatus(ref, "completed");
+    }
+
+    sendReceipt(req.userId!, "debit", description, totalRetail, ref, "successful");
+    res.json({ success: true, message: pins.length ? `Your ${exam_body} PIN(s): ${pins.join(", ")}` : `${exam_body} result checker processed successfully.`, pins, reference: ref, new_balance: deduct.newBalance });
+  } catch (err) {
+    req.log.error({ err }, "Error buying education");
+    res.status(500).json({ success: false, message: "Failed to process education purchase" });
   }
 });
 
