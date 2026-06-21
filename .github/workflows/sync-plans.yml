@@ -83,8 +83,8 @@ jobs:
               .replace(/\s+/g, ' ');
 
             const plans = [];
-            // Match: NETWORK  Data/Cable TV  Plan Name  ID  Price  Copy
-            const re = /(MTN|AIRTEL|GLO|DSTV|GOTV|STARTIMES)\s+(Data|Cable TV)\s+([^0-9]{3,60?}?)\s+(\d+)\s+([\d.]+)\s+Copy/gi;
+            // Match: NETWORK  Data/Cable TV  Plan Name (may contain digits)  ID  Price  Copy
+            const re = /(MTN|AIRTEL|GLO|DSTV|GOTV|STARTIMES)\s+(Data|Cable TV)\s+(.+?)\s+(\d+)\s+([\d.]+)\s+Copy/gi;
             let match;
             while ((match = re.exec(text)) !== null) {
               const [, network, svcRaw, rawName, id, price] = match;
