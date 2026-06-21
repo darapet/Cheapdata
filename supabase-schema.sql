@@ -114,6 +114,14 @@ ALTER TABLE public.system_settings ADD COLUMN IF NOT EXISTS flutterwave_secret_k
 ALTER TABLE public.system_settings ADD COLUMN IF NOT EXISTS cheapdatahub_api_key TEXT;
 ALTER TABLE public.system_settings ADD COLUMN IF NOT EXISTS cheapdatahub_base_url TEXT;
 ALTER TABLE public.system_settings ADD COLUMN IF NOT EXISTS cheapdatahub_funding_account TEXT;
+ALTER TABLE public.system_settings ADD COLUMN IF NOT EXISTS cheapdatahub_bank_name TEXT;
+ALTER TABLE public.system_settings ADD COLUMN IF NOT EXISTS cheapdatahub_bank_code TEXT;
+ALTER TABLE public.system_settings ADD COLUMN IF NOT EXISTS cheapdatahub_bank_account TEXT;
+ALTER TABLE public.system_settings ADD COLUMN IF NOT EXISTS cheapdatahub_account_name TEXT;
+ALTER TABLE public.system_settings ADD COLUMN IF NOT EXISTS cheapdatahub_low_balance_threshold NUMERIC DEFAULT 5000;
+ALTER TABLE public.system_settings ADD COLUMN IF NOT EXISTS cheapdatahub_topup_amount NUMERIC DEFAULT 20000;
+ALTER TABLE public.system_settings ADD COLUMN IF NOT EXISTS cheapdatahub_auto_fund BOOLEAN DEFAULT false;
+ALTER TABLE public.system_settings ADD COLUMN IF NOT EXISTS cheapdatahub_paystack_recipient_code TEXT;
 ALTER TABLE public.system_settings ADD COLUMN IF NOT EXISTS brevo_api_key TEXT;
 ALTER TABLE public.system_settings ADD COLUMN IF NOT EXISTS brevo_sender_email TEXT;
 ALTER TABLE public.system_settings ADD COLUMN IF NOT EXISTS brevo_sender_name TEXT DEFAULT 'CheapDataHub';
