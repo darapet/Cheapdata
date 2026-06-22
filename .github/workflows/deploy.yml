@@ -81,10 +81,24 @@ jobs:
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
         run: |
+          echo "Logging in to Supabase..."
+          supabase login --token "$SUPABASE_ACCESS_TOKEN"
+          echo "Linking project..."
+          supabase link --project-ref vumuvcghlumvenmnakyo
+          FAILED=0
           for fn in verify-cable verify-education send-otp reset-pin create-dva paystack-webhook buy-data buy-cable buy-education buy-airtime buy-electricity sync-plans auto-sync-plans verify-meter; do
             if [ -d "supabase/functions/$fn" ]; then
               echo "Deploying $fn..."
-              supabase functions deploy $fn --project-ref vumuvcghlumvenmnakyo --no-verify-jwt || echo "WARNING: $fn deploy failed, continuing..."
+              if supabase functions deploy $fn --project-ref vumuvcghlumvenmnakyo --no-verify-jwt; then
+                echo "  ✅ $fn deployed"
+              else
+                echo "  ❌ $fn FAILED"
+                FAILED=1
+              fi
             fi
           done
-          echo "All function deployments done"
+          if [ "$FAILED" = "1" ]; then
+            echo "One or more functions failed to deploy"
+            exit 1
+          fi
+          echo "All functions deployed successfully"
