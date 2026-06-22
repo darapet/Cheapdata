@@ -65,7 +65,7 @@ export async function cheapdatahubCall(
   const url = `https://www.cheapdatahub.ng/api/v1/resellers/${endpoint}`;
   const options: RequestInit = {
     method,
-    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+    headers: { Authorization: `Token ${apiKey}`, 'Content-Type': 'application/json' },
   };
   if (method === 'POST') options.body = JSON.stringify(payload);
   const res = await fetch(url, options);
