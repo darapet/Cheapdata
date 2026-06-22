@@ -22,6 +22,7 @@ import Profile from "@/pages/Profile";
 import AdminDashboard from "@/pages/admin/Dashboard";
 import AdminUsers from "@/pages/admin/Users";
 import AdminTransactions from "@/pages/admin/Transactions";
+import AdminTransfers from "@/pages/admin/Transfers";
 import AdminSettings from "@/pages/admin/Settings";
 import AdminPlans from "@/pages/admin/Plans";
 
@@ -66,6 +67,13 @@ function Router() {
         {() => (
           <ProtectedRoute adminOnly>
             <AdminLayout><AdminTransactions /></AdminLayout>
+          </ProtectedRoute>
+        )}
+      </Route>
+      <Route path="/admin/transfers">
+        {() => (
+          <ProtectedRoute adminOnly>
+            <AdminLayout><AdminTransfers /></AdminLayout>
           </ProtectedRoute>
         )}
       </Route>
