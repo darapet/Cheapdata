@@ -66,7 +66,7 @@ Deno.serve(async (req) => {
         try {
           const r = await fetch(endpoint, {
             method: 'POST',
-            headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+            headers: { Authorization: `Token ${apiKey}`, 'Content-Type': 'application/json' },
             body: JSON.stringify(payload),
           });
           if (r.status === 404 || r.status === 405) break; // endpoint doesn't exist, try next
@@ -96,7 +96,7 @@ Deno.serve(async (req) => {
     for (const endpoint of getEndpoints) {
       try {
         const r = await fetch(endpoint, {
-          headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+          headers: { Authorization: `Token ${apiKey}`, 'Content-Type': 'application/json' },
         });
         if (r.status === 404 || r.status === 405) continue;
         const body = await r.json() as Record<string, unknown>;
