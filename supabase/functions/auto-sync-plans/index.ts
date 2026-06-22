@@ -14,7 +14,7 @@ const PLAN_ENDPOINTS: Record<string, string[]> = {
 async function cdhGet(endpoint: string, key: string): Promise<any | null> {
   try {
     const res = await fetch(`${CDH_BASE}/${endpoint}`, {
-      headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+      headers: { Authorization: `Token ${key}`, 'Content-Type': 'application/json' },
     });
     if (!res.ok) return null;
     const body = await res.json() as any;
