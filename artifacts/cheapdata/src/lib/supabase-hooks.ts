@@ -138,6 +138,7 @@ async function authHeaders() {
 // ── Service hooks — routed through Supabase Edge Functions ───────────────────
 
 export function useBuyData() {
+  const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async ({ data }: { data: { phone: string; plan_id: string; network: string; pin: string } }) => {
       const res = await fetch(`${EDGE_BASE}/buy-data`, {
@@ -148,10 +149,14 @@ export function useBuyData() {
       const body = await res.json() as { success: boolean; message: string; reference?: string; new_balance?: number };
       return body;
     },
+    onSuccess: (data) => {
+      if (data.success) queryClient.invalidateQueries({ queryKey: getGetProfileQueryKey() });
+    },
   });
 }
 
 export function useBuyAirtime() {
+  const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async ({ data }: { data: { phone: string; network: string; amount: number; pin: string } }) => {
       const res = await fetch(`${EDGE_BASE}/buy-airtime`, {
@@ -162,10 +167,14 @@ export function useBuyAirtime() {
       const body = await res.json() as { success: boolean; message: string; reference?: string; new_balance?: number };
       return body;
     },
+    onSuccess: (data) => {
+      if (data.success) queryClient.invalidateQueries({ queryKey: getGetProfileQueryKey() });
+    },
   });
 }
 
 export function useBuyCable() {
+  const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async ({ data }: { data: { smart_card_number: string; cable_provider: string; plan_id: string; amount: number; pin: string } }) => {
       const res = await fetch(`${EDGE_BASE}/buy-cable`, {
@@ -176,10 +185,14 @@ export function useBuyCable() {
       const body = await res.json() as { success: boolean; message: string; reference?: string; new_balance?: number };
       return body;
     },
+    onSuccess: (data) => {
+      if (data.success) queryClient.invalidateQueries({ queryKey: getGetProfileQueryKey() });
+    },
   });
 }
 
 export function useBuyElectricity() {
+  const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async ({ data }: { data: { meter_number: string; disco: string; amount: number; meter_type: string; pin: string } }) => {
       const res = await fetch(`${EDGE_BASE}/buy-electricity`, {
@@ -189,6 +202,9 @@ export function useBuyElectricity() {
       });
       const body = await res.json() as { success: boolean; message: string; token?: string; reference?: string; new_balance?: number };
       return body;
+    },
+    onSuccess: (data) => {
+      if (data.success) queryClient.invalidateQueries({ queryKey: getGetProfileQueryKey() });
     },
   });
 }
@@ -402,6 +418,7 @@ export function useAdminTopupCheapDataHub() {
 
 // ── Buy Education (WAEC / NECO / JAMB / GCE result checker PINs) ──────────────
 export function useBuyEducation() {
+  const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async ({ data }: { data: { exam_body: string; plan_id: string; quantity: number; pin: string } }) => {
       const res = await fetch(`${EDGE_BASE}/buy-education`, {
@@ -412,6 +429,9 @@ export function useBuyEducation() {
       const body = await res.json() as { success: boolean; message: string; pins?: string[]; reference?: string; new_balance?: number };
       if (!res.ok) throw new Error(body.message || 'Education purchase failed');
       return body;
+    },
+    onSuccess: (data) => {
+      if (data.success) queryClient.invalidateQueries({ queryKey: getGetProfileQueryKey() });
     },
   });
 }
