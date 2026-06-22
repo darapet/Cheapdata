@@ -40,7 +40,7 @@ Deno.serve(async (req) => {
     for (const endpoint of endpoints) {
       try {
         const r = await fetch(endpoint, {
-          headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+          headers: { Authorization: `Token ${apiKey}`, 'Content-Type': 'application/json' },
         });
 
         if (r.status === 404 || r.status === 405) continue;
