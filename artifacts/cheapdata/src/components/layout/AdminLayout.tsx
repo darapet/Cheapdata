@@ -1,5 +1,5 @@
 import { Link, useLocation } from "wouter";
-import { LayoutDashboard, Users, CreditCard, Settings, LogOut, Home, ListChecks } from "lucide-react";
+import { LayoutDashboard, Users, CreditCard, Settings, LogOut, Home, ListChecks, Zap } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
@@ -9,6 +9,7 @@ const navigation = [
   { name: "Plans", href: "/admin/plans", icon: ListChecks },
   { name: "Users", href: "/admin/users", icon: Users },
   { name: "Transactions", href: "/admin/transactions", icon: CreditCard },
+  { name: "Transfers", href: "/admin/transfers", icon: Zap },
   { name: "Settings", href: "/admin/settings", icon: Settings },
 ];
 
