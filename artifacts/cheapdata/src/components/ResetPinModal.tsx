@@ -67,7 +67,6 @@ export function ResetPinModal({ open, onOpenChange }: ResetPinModalProps) {
     }
     setIsLoading(true);
     try {
-      // Look up profile by email to get the user's ID
       const { data: profileData, error: profileError } = await supabase
         .from("profiles")
         .select("id, email")
@@ -80,7 +79,6 @@ export function ResetPinModal({ open, onOpenChange }: ResetPinModalProps) {
         return;
       }
 
-      // Generate OTP on the frontend, send it via the edge function
       const code = String(Math.floor(1000 + Math.random() * 9000));
       setGeneratedOtp(code);
       setUserId(profileData.id);
@@ -131,15 +129,16 @@ export function ResetPinModal({ open, onOpenChange }: ResetPinModalProps) {
     try {
       const hashedPin = await hashPin(newPin);
 
-      // Use upsert so it works whether or not the profile row already exists
-      const { error } = await supabase
-        .from("profiles")
-        .upsert(
-          { id: userId, transaction_pin: hashedPin, is_pin_set: true },
-          { onConflict: "id" }
-        );
+      // Call the reset-pin edge function which uses the service role key
+      // to bypass RLS — the client key cannot update another user's profile row
+      const res = await fetch(`${EDGE_BASE}/reset-pin`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId, hashedPin }),
+      });
 
-      if (error) throw error;
+      const body = await res.json().catch(() => ({})) as { error?: string };
+      if (!res.ok) throw new Error(body.error ?? "Failed to save PIN");
 
       toast({ title: "PIN Updated ✅", description: "Your transaction PIN has been reset successfully." });
       handleClose(false);
