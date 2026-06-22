@@ -416,6 +416,21 @@ export function useAdminTopupCheapDataHub() {
   });
 }
 
+// ── Create Dedicated Virtual Account ─────────────────────────────────────────
+export function useCreateDva() {
+  return useMutation({
+    mutationFn: async () => {
+      const res = await fetch(`${EDGE_BASE}/create-dva`, {
+        method: "POST",
+        headers: await authHeaders(),
+      });
+      const body = await res.json() as { success?: boolean; account_number?: string; account_name?: string; bank_name?: string; error?: string };
+      if (!res.ok) throw new Error(body.error ?? "Failed to create account");
+      return body;
+    },
+  });
+}
+
 // ── Buy Education (WAEC / NECO / JAMB / GCE result checker PINs) ──────────────
 export function useBuyEducation() {
   const queryClient = useQueryClient();
