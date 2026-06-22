@@ -81,7 +81,7 @@ jobs:
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
         run: |
-          for fn in verify-cable verify-education send-otp buy-data buy-cable buy-education buy-airtime buy-electricity sync-plans auto-sync-plans verify-meter; do
+          for fn in verify-cable verify-education send-otp reset-pin create-dva paystack-webhook buy-data buy-cable buy-education buy-airtime buy-electricity sync-plans auto-sync-plans verify-meter; do
             if [ -d "supabase/functions/$fn" ]; then
               echo "Deploying $fn..."
               supabase functions deploy $fn --project-ref vumuvcghlumvenmnakyo --no-verify-jwt || echo "WARNING: $fn deploy failed, continuing..."
