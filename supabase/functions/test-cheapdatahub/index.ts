@@ -20,7 +20,7 @@ import { corsHeaders, getSupabaseAdmin, verifyAuthToken, getSettings, jsonRespon
 
       // Correct endpoint from CheapDataHub API docs: GET /api/v1/resellers/wallet/balance/
       const r = await fetch('https://www.cheapdatahub.ng/api/v1/resellers/wallet/balance/', {
-        headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+        headers: { Authorization: `Token ${key}`, 'Content-Type': 'application/json' },
       });
 
       if (!r.ok) {
