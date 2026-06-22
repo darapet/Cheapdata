@@ -70,11 +70,14 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install Supabase CLI v2.107.0
+      - name: Setup Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Install Supabase CLI
         run: |
-          curl -sSL https://github.com/supabase/cli/releases/download/v2.107.0/supabase_2.107.0_linux_amd64.tar.gz -o /tmp/supabase.tar.gz
-          tar -xf /tmp/supabase.tar.gz -C /tmp supabase
-          sudo mv /tmp/supabase /usr/local/bin/supabase
+          npm install -g supabase@2.107.0
           supabase --version
 
       - name: Deploy Edge Functions
