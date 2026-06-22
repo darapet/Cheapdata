@@ -81,10 +81,6 @@ jobs:
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
         run: |
-          echo "Logging in to Supabase..."
-          supabase login --token "$SUPABASE_ACCESS_TOKEN"
-          echo "Linking project..."
-          supabase link --project-ref vumuvcghlumvenmnakyo
           FAILED=0
           for fn in verify-cable verify-education send-otp reset-pin create-dva paystack-webhook buy-data buy-cable buy-education buy-airtime buy-electricity sync-plans auto-sync-plans verify-meter; do
             if [ -d "supabase/functions/$fn" ]; then
