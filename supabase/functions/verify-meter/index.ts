@@ -37,7 +37,7 @@ Deno.serve(async (req) => {
     for (const endpoint of verifyEndpoints) {
       try {
         const r = await fetch(`https://www.cheapdatahub.ng/api/v1/resellers/${endpoint}`, {
-          headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+          headers: { Authorization: `Token ${apiKey}`, 'Content-Type': 'application/json' },
         });
         if (r.status === 404) continue;
         const body = await r.json() as Record<string, unknown>;
