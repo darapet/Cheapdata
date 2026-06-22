@@ -416,6 +416,26 @@ export function useAdminTopupCheapDataHub() {
   });
 }
 
+// ── Update user profile ───────────────────────────────────────────────────────
+export function useUpdateProfile() {
+  return useMutation({
+    mutationFn: async ({ data }: { data: { full_name?: string; phone?: string; address?: string } }) => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Not authenticated');
+      const { error } = await supabase
+        .from('profiles')
+        .update({
+          ...(data.full_name !== undefined ? { full_name: data.full_name.trim() } : {}),
+          ...(data.phone     !== undefined ? { phone: data.phone.trim() }         : {}),
+          ...(data.address   !== undefined ? { address: data.address.trim() }     : {}),
+        })
+        .eq('id', user.id);
+      if (error) throw error;
+      return { success: true };
+    },
+  });
+}
+
 // ── Create Dedicated Virtual Account ─────────────────────────────────────────
 export function useCreateDva() {
   return useMutation({
